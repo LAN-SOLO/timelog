@@ -1,0 +1,56 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "timelog",
+  "version": "0.1.0",
+  "identifier": "com.lan-solo.timelog",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:1434",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "timelog",
+        "width": 1240,
+        "height": 800,
+        "minWidth": 900,
+        "minHeight": 600,
+        "resizable": true,
+        "backgroundColor": "#0b1220"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDJGODFEQkQ5NTM1NjlGNDIKUldSQ24xWlQyZHVCTHdZZnM1aEtaYkVzakpwS0ZIYWRvVUMvelN4bEwwR3pqcFlRcW1GWk9RbHMK",
+      "endpoints": [
+        "https://github.com/LAN-SOLO/timelog/releases/latest/download/latest.json"
+      ]
+    }
+  },
+  "bundle": {
+    "active": true,
+    "createUpdaterArtifacts": true,
+    "targets": ["app", "dmg", "msi", "nsis", "deb", "rpm", "appimage"],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "category": "Productivity",
+    "shortDescription": "Zeiterfassung mit zwei Modi: einfach oder tracked — lokal, ohne Konto",
+    "longDescription": "timelog ist eine schlanke Zeiterfassung für Einzelne und Teams: Stoppuhr und manuelle Einträge je Projekt, Tages- und Wochenansicht, Zusammenfassungen als CSV. Der Expertenmodus (tracked) ergänzt Team, Kunden, Tätigkeiten, Budgets, Monitoring-Dashboard, PDF-Berichte, Wochenabschluss und Team-Zusammenführung per Export/Import. Daten bleiben lokal, keine Telemetrie.",
+    "linux": {
+      "deb": {
+        "depends": []
+      }
+    }
+  }
+}
