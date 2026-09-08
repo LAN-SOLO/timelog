@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Settings, UpdateInfo, api } from '../api';
+import { Data, Settings, UpdateInfo, api, isTauri } from '../api';
+import { openTextFile, saveTextFile } from '../files';
 import { Dict } from '../i18n';
+import { dateKey } from '../util';
 
-export const APP_VERSION = '0.1.0';
+export const APP_VERSION = '0.2.0';
 
 type SetTab = 'general' | 'tracking' | 'reports' | 'app';
 
@@ -12,12 +14,18 @@ export function SettingsModal({
   onClose,
   onSave,
   onLive,
+  onData,
+  onToast,
+  onFail,
 }: {
   settings: Settings;
   t: Dict;
   onClose: () => void;
   onSave: (s: Settings) => void;
   onLive: (s: Settings) => void;
+  onData: (d: Data) => void;
+  onToast: (msg: string) => void;
+  onFail: (e: unknown) => void;
 }) {
   const [tab, setTab] = useState<SetTab>('general');
   const [s, setS] = useState<Settings>({ ...settings });
@@ -49,6 +57,28 @@ export function SettingsModal({
         } else setUpdState('none');
       })
       .catch(() => setUpdState('error'));
+  };
+
+  // Web-Version: Sicherung der Browser-Daten als Paket (gleiches Format wie „Team“).
+  const exportData = async () => {
+    try {
+      const json = await api.exportPackage(null);
+      if (await saveTextFile(`timelog_all_${dateKey(new Date())}.json`, json, { name: 'JSON', extensions: ['json'] }, 'application/json'))
+        onToast(t.packageSaved);
+    } catch (e) {
+      onFail(e);
+    }
+  };
+  const importData = async () => {
+    try {
+      const json = await openTextFile({ name: 'JSON', extensions: ['json'] });
+      if (json === null) return;
+      const res = await api.importPackage(json);
+      onData(res.data);
+      onToast(t.importResult(res.report));
+    } catch (e) {
+      onFail(e);
+    }
   };
 
   const expert = s.mode === 'expert';
@@ -186,43 +216,56 @@ export function SettingsModal({
         {tab === 'app' && (
           <>
             <div className="fieldlabel">{t.updates}</div>
-            <label className="check">
-              <input type="checkbox" checked={s.autoUpdate} onChange={(e) => set('autoUpdate', e.target.checked)} />
-              {t.autoUpdate}
-            </label>
+            {isTauri && (
+              <label className="check">
+                <input type="checkbox" checked={s.autoUpdate} onChange={(e) => set('autoUpdate', e.target.checked)} />
+                {t.autoUpdate}
+              </label>
+            )}
             <div className="updatebox">
               <span>
                 {t.version} {APP_VERSION}
               </span>
-              <button onClick={checkUpdates} disabled={updState === 'checking'}>
-                {updState === 'checking' ? t.checking : t.checkUpdates}
-              </button>
-              {updState === 'none' && <span>{t.upToDate}</span>}
-              {updState === 'error' && <span style={{ color: 'var(--red)' }}>{t.updateError}</span>}
-              {update && (
+              {!isTauri && <span className="dim">{t.webUpdatesNote}</span>}
+              {isTauri && (
                 <>
-                  <span>
-                    {t.updateAvailable} <strong>{update.version}</strong>
-                  </span>
-                  <button
-                    className="primary"
-                    disabled={installing}
-                    onClick={() => {
-                      setInstalling(true);
-                      api.installUpdate().catch(() => setInstalling(false));
-                    }}
-                  >
-                    {installing ? t.updateInstalling : t.installUpdate}
+                  <button onClick={checkUpdates} disabled={updState === 'checking'}>
+                    {updState === 'checking' ? t.checking : t.checkUpdates}
                   </button>
+                  {updState === 'none' && <span>{t.upToDate}</span>}
+                  {updState === 'error' && <span style={{ color: 'var(--red)' }}>{t.updateError}</span>}
+                  {update && (
+                    <>
+                      <span>
+                        {t.updateAvailable} <strong>{update.version}</strong>
+                      </span>
+                      <button
+                        className="primary"
+                        disabled={installing}
+                        onClick={() => {
+                          setInstalling(true);
+                          api.installUpdate().catch(() => setInstalling(false));
+                        }}
+                      >
+                        {installing ? t.updateInstalling : t.installUpdate}
+                      </button>
+                    </>
+                  )}
                 </>
               )}
             </div>
             <div className="sep" />
-            <div className="fieldlabel">{t.dataPath}</div>
+            <div className="fieldlabel">{isTauri ? t.dataPath : t.dataStorage}</div>
             <div className="note" style={{ userSelect: 'text', WebkitUserSelect: 'text' }}>
               {dataPath}
             </div>
-            <div className="note">{t.privacyNote}</div>
+            <div className="note">{isTauri ? t.privacyNote : t.webStorageNote}</div>
+            {!isTauri && (
+              <div className="btnrow" style={{ justifyContent: 'flex-start', marginTop: 8 }}>
+                <button onClick={exportData}>{t.exportData}</button>
+                <button onClick={importData}>{t.importData}</button>
+              </div>
+            )}
             {expert && (
               <>
                 <div className="fieldlabel">{t.shortcuts}</div>

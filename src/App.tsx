@@ -7,7 +7,7 @@ import { Help } from './components/Help';
 import { ProjectModal } from './components/ProjectModal';
 import { Reports } from './components/Reports';
 import { SettingsModal } from './components/SettingsModal';
-import { Sidebar, View } from './components/Sidebar';
+import { Sidebar, TabBar, View } from './components/Sidebar';
 import { Team } from './components/Team';
 import { IconGear, IconPlay, IconStop } from './icons';
 import { addDays, durationSecs, fmtHM, fmtHMS, fmtTime, startOfDay, toIso } from './util';
@@ -57,6 +57,7 @@ export default function App() {
   const [personFilter, setPersonFilter] = useState<string | null>(null);
   const [projectFilter, setProjectFilter] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [projectEdit, setProjectEdit] = useState<ProjectEdit | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [confirm, setConfirm] = useState<{ text: string } | null>(null);
@@ -146,10 +147,14 @@ export default function App() {
     window.addEventListener('mousemove', mark);
     window.addEventListener('keydown', mark);
     window.addEventListener('mousedown', mark);
+    window.addEventListener('touchstart', mark, { passive: true });
+    window.addEventListener('scroll', mark, { passive: true, capture: true });
     return () => {
       window.removeEventListener('mousemove', mark);
       window.removeEventListener('keydown', mark);
       window.removeEventListener('mousedown', mark);
+      window.removeEventListener('touchstart', mark);
+      window.removeEventListener('scroll', mark, { capture: true });
     };
   }, []);
 
@@ -271,6 +276,10 @@ export default function App() {
         }
         return;
       }
+      if (e.key === 'Escape' && drawerOpen) {
+        setDrawerOpen(false);
+        return;
+      }
       switch (e.key) {
         case 's':
           running ? stopTimer() : startTimer();
@@ -313,7 +322,7 @@ export default function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [expert, view, running, startTimer, stopTimer, showSettings, projectEdit, confirm, idlePrompt]);
+  }, [expert, view, running, startTimer, stopTimer, showSettings, projectEdit, confirm, idlePrompt, drawerOpen]);
 
   if (!settings) return null;
 
@@ -336,7 +345,7 @@ export default function App() {
               <span className="clock">{fmtHMS(durationSecs(running, now))}</span>
               <span className="tproj">
                 <span className="swatch" style={{ background: runningProject?.color ?? 'var(--border)' }} />
-                {runningProject?.name ?? '—'}
+                <span className="tname">{runningProject?.name ?? '—'}</span>
               </span>
               {running.note && <span className="tnote">// {running.note}</span>}
               <span className="dim" style={{ fontSize: 11 }}>
@@ -374,7 +383,7 @@ export default function App() {
           <select
             value={personFilter ?? ''}
             onChange={(e) => setPersonFilter(e.target.value || null)}
-            style={{ width: 'auto', padding: '4px 6px', fontSize: 11.5 }}
+            className="personfilter"
           >
             <option value="">{t.personFilterAll}</option>
             {activePersons.map((p) => (
@@ -394,7 +403,7 @@ export default function App() {
           </button>
         </span>
         {expert && <span className="badge">{t.trackedBadge}</span>}
-        <button className="ghost icon" title={t.help} onClick={() => setHelpSignal((n) => n + 1)}>
+        <button className="ghost icon hdr-help" title={t.help} onClick={() => setHelpSignal((n) => n + 1)}>
           ?
         </button>
         <button
@@ -422,6 +431,8 @@ export default function App() {
           onEditProject={(p) => setProjectEdit({ kind: 'edit', project: p })}
           showArchived={showArchived}
           onToggleArchived={() => setShowArchived(!showArchived)}
+          open={drawerOpen}
+          onClose={() => setDrawerOpen(false)}
         />
 
         {loaded && data.projects.length === 0 && (view === 'today' || view === 'week') ? (
@@ -485,6 +496,20 @@ export default function App() {
         )}
       </div>
 
+      <TabBar
+        t={t}
+        expert={expert}
+        view={view}
+        onView={(v) => {
+          setView(v);
+          setDrawerOpen(false);
+        }}
+        projectFilter={projectFilter}
+        projectColor={data.projects.find((p) => p.id === projectFilter)?.color ?? null}
+        onProjects={() => setDrawerOpen((o) => !o)}
+        drawerOpen={drawerOpen}
+      />
+
       {projectEdit && (
         <ProjectModal
           project={projectEdit.kind === 'edit' ? projectEdit.project : null}
@@ -508,6 +533,9 @@ export default function App() {
           }}
           onSave={saveSettings}
           onLive={(s) => setSettings(s)}
+          onData={setData}
+          onToast={showToast}
+          onFail={fail}
         />
       )}
 

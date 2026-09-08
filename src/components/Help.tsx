@@ -244,6 +244,17 @@ const de: Content = {
       ],
     },
     {
+      id: 'mobile',
+      title: 'Telefon & Browser',
+      body: [
+        'timelog läuft auch als Webapp im Browser — auf dem Telefon mit angepasster Oberfläche: Die Ansichten liegen in der Leiste am unteren Rand, „Projekte“ öffnet die Projektliste als Schublade, Einträge werden als Karten mit Projekt, Von/Bis, Dauer und Notiz gezeigt.',
+        '• Zum Startbildschirm hinzufügen (Safari: Teilen → „Zum Home-Bildschirm“; Chrome: Menü → „App installieren“) — dann startet timelog wie eine App, ohne Browserleiste, auch ohne Netz.',
+        '• Die Daten der Web-Version liegen im Speicher dieses Browsers auf diesem Gerät. Es gibt keinen Abgleich mit der Desktop-App — Austausch läuft über „Daten exportieren / importieren“ (Einstellungen → App) bzw. das Team-Paket.',
+        '• Wichtig: Wer die Website-Daten des Browsers löscht, löscht auch die Einträge. Regelmäßig exportieren.',
+        '• CSV- und PDF-Exporte kommen als Download; auf iOS landen sie über das Teilen-Menü in „Dateien“.',
+      ],
+    },
+    {
       id: 'trouble',
       title: 'Problemlösung',
       body: [
@@ -465,6 +476,17 @@ const en: Content = {
       body: [
         'timelog silently checks for new versions on launch and shows a banner. With auto-update it installs right away.',
         'Updates are signed — the app only installs packages whose signature matches the built-in key.',
+      ],
+    },
+    {
+      id: 'mobile',
+      title: 'Phone & browser',
+      body: [
+        'timelog also runs as a web app in the browser — on a phone with an adapted layout: views sit in the bar at the bottom, “Projects” opens the project list as a drawer, entries appear as cards with project, from/to, duration and note.',
+        '• Add to home screen (Safari: Share → “Add to Home Screen”; Chrome: menu → “Install app”) — timelog then starts like an app, without browser chrome, even offline.',
+        '• The web version keeps its data in this browser’s storage on this device. There is no sync with the desktop app — exchange data via “Export / Import data” (Settings → App) or the team package.',
+        '• Important: clearing the browser’s site data deletes the entries as well. Export regularly.',
+        '• CSV and PDF exports arrive as downloads; on iOS they land in “Files” via the share sheet.',
       ],
     },
     {

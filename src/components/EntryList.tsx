@@ -354,6 +354,7 @@ function EntryRow({
     <div className={`erow ${expert ? 'expert' : ''} ${locked ? 'locked' : ''} ${running ? 'running' : ''}`}>
       <span className="swatch" style={{ background: project?.color ?? 'var(--border)' }} />
       <select
+        className="c-proj"
         value={e.projectId}
         disabled={locked}
         title={personName ? `${personName}` : undefined}
@@ -370,6 +371,7 @@ function EntryRow({
       </select>
       {expert && (
         <select
+          className="c-task"
           value={e.taskId ?? ''}
           disabled={locked || tasks.length === 0}
           onChange={(ev) => {
@@ -387,7 +389,7 @@ function EntryRow({
       )}
       <input
         type="text"
-        className="time"
+        className="time c-from"
         value={from}
         disabled={locked}
         onChange={(ev) => setFrom(ev.target.value)}
@@ -396,7 +398,7 @@ function EntryRow({
       />
       <input
         type="text"
-        className="time"
+        className="time c-to"
         value={to}
         placeholder={running ? t.timerRunning : ''}
         disabled={locked}
@@ -409,6 +411,7 @@ function EntryRow({
       </span>
       <input
         type="text"
+        className="c-note"
         value={note}
         placeholder={t.colNote}
         disabled={locked}
@@ -419,6 +422,7 @@ function EntryRow({
       {expert && (
         <input
           type="checkbox"
+          className="c-bill"
           title={t.colBillableHours}
           checked={e.billable}
           disabled={locked}

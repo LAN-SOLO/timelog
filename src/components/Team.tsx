@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { open, save } from '@tauri-apps/plugin-dialog';
 import { Client, Data, Lang, Person, Settings, Task, api } from '../api';
+import { openTextFile, saveTextFile } from '../files';
 import { Dict } from '../i18n';
 import { IconArchive, IconChevronLeft, IconChevronRight, IconDownload, IconEdit, IconLock, IconPlus, IconTrash, IconUnlock, IconUpload } from '../icons';
 import { PALETTE, addDays, dateKey, fmtDate, fmtRange, isoWeek, nextColor, parseDateKey, startOfDay, weekStartOf } from '../util';
@@ -103,23 +103,16 @@ export function Team({
     try {
       const json = await api.exportPackage(mine ? data.mePersonId : null);
       const me = data.persons.find((p) => p.id === data.mePersonId)?.name.replace(/[^\w-]+/g, '_') ?? 'me';
-      const path = await save({
-        defaultPath: `timelog_${mine ? me : 'all'}_${dateKey(new Date())}.json`,
-        filters: [{ name: 'JSON', extensions: ['json'] }],
-      });
-      if (!path) return;
-      await api.writeTextFile(path, json);
-      onToast(t.packageSaved);
+      const name = `timelog_${mine ? me : 'all'}_${dateKey(new Date())}.json`;
+      if (await saveTextFile(name, json, { name: 'JSON', extensions: ['json'] }, 'application/json')) onToast(t.packageSaved);
     } catch (e) {
       onFail(e);
     }
   };
   const importPackage = async () => {
     try {
-      const sel = await open({ multiple: false, filters: [{ name: 'JSON', extensions: ['json'] }] });
-      const path = typeof sel === 'string' ? sel : null;
-      if (!path) return;
-      const json = await api.readTextFile(path);
+      const json = await openTextFile({ name: 'JSON', extensions: ['json'] });
+      if (json === null) return;
       const res = await api.importPackage(json);
       onData(res.data);
       onToast(t.importResult(res.report));

@@ -10,6 +10,20 @@ Zeiterfassung mit zwei Modi — für Einzelne und Teams, lokal, ohne Konto.
 DE/EN, Dunkel/Hell, signierte In-App-Updates. Keine Telemetrie.
 Im Vorabzugang ist der Expertenmodus frei umschaltbar (keine Lizenzprüfung).
 
+## Web-Version (Browser / Telefon)
+
+Die Oberfläche läuft auch ohne Tauri als Webapp: `pnpm build` erzeugt in `dist/` eine
+statische Seite (relative Pfade, Manifest, Service Worker), die auf jedem Webspace liegen
+kann — auch unter einem Unterpfad. Ohne Tauri übernimmt `src/webapi.ts` die Kommandos aus
+`src/api.ts` (gleicher Vertrag) und speichert im `localStorage` des Geräts; Exporte kommen
+als Download, Import per Dateiauswahl (`src/files.ts`). Unter 760 px Breite schaltet das
+Layout auf Telefon um: Ansichten in der Tab-Leiste unten, Projekte als Schublade, Einträge
+als Karten, Modals als Sheets, Formularfelder 16 px (kein iOS-Auto-Zoom). „Zum Home-Bildschirm“
+ergibt eine installierbare, offline startende App. Kein Sync mit der Desktop-App — Austausch
+über Einstellungen → App → Daten exportieren / importieren (Paketformat wie „Team“).
+
+Lokal prüfen: `pnpm dev` und http://localhost:1434 im Browser öffnen (ohne Tauri → Web-Backend).
+
 ## Entwicklung
 
 ```sh

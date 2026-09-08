@@ -231,6 +231,14 @@ const de = {
   close: 'Schließen',
   yes: 'ja',
   no: 'nein',
+  // web (Browser-Version)
+  dataStorage: 'Speicherort',
+  webStorageNote:
+    '// Web-Version: Die Daten liegen im Speicher dieses Browsers auf diesem Gerät — kein Server, keine Cloud. Backup = „Daten exportieren“; die Datei lässt sich hier oder in der Desktop-App importieren.',
+  webUpdatesNote: 'Web-Version — neue Versionen kommen automatisch beim nächsten Laden der Seite.',
+  exportData: 'Daten exportieren (JSON)',
+  importData: 'Daten importieren …',
+  menu: 'Menü',
 };
 
 const en: typeof de = {
@@ -451,6 +459,13 @@ const en: typeof de = {
   close: 'Close',
   yes: 'yes',
   no: 'no',
+  dataStorage: 'Storage',
+  webStorageNote:
+    '// Web version: your data lives in this browser’s storage on this device — no server, no cloud. Backup = “Export data”; the file can be imported here or in the desktop app.',
+  webUpdatesNote: 'Web version — new releases arrive automatically the next time the page loads.',
+  exportData: 'Export data (JSON)',
+  importData: 'Import data …',
+  menu: 'Menu',
 };
 
 export type Dict = typeof de;

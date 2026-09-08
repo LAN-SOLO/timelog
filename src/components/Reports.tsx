@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { save } from '@tauri-apps/plugin-dialog';
-import { Data, Filter, GroupBy, Lang, Settings, Summary, api, bytesToBase64 } from '../api';
+import { Data, Filter, GroupBy, Lang, Settings, Summary, api } from '../api';
+import { saveBinaryFile, saveTextFile } from '../files';
 import { Dict } from '../i18n';
 import { IconDownload, IconFile } from '../icons';
 import { buildReportPdf } from '../pdf';
@@ -63,13 +63,8 @@ export function Reports({
   const exportCsv = async (kind: 'entries' | 'summary') => {
     try {
       const csv = await api.exportCsv(from, to, kind, gb, filter);
-      const path = await save({
-        defaultPath: `timelog_${kind}_${stamp}.csv`,
-        filters: [{ name: 'CSV', extensions: ['csv'] }],
-      });
-      if (!path) return;
-      await api.writeTextFile(path, csv);
-      onToast(t.csvSaved);
+      if (await saveTextFile(`timelog_${kind}_${stamp}.csv`, csv, { name: 'CSV', extensions: ['csv'] }, 'text/csv'))
+        onToast(t.csvSaved);
     } catch (e) {
       onFail(e);
     }
@@ -97,10 +92,7 @@ export function Reports({
         lang,
         now,
       });
-      const path = await save({ defaultPath: suggestedName, filters: [{ name: 'PDF', extensions: ['pdf'] }] });
-      if (!path) return;
-      await api.writeFile(path, bytesToBase64(bytes));
-      onToast(t.pdfSaved);
+      if (await saveBinaryFile(suggestedName, bytes, { name: 'PDF', extensions: ['pdf'] }, 'application/pdf')) onToast(t.pdfSaved);
     } catch (e) {
       onFail(e);
     }
@@ -140,6 +132,7 @@ export function Reports({
       <div className="viewbody">
         {summary && summary.rows.length === 0 && <div className="empty">{t.noData}</div>}
         {summary && summary.rows.length > 0 && (
+          <div className="tablewrap">
           <table className="rtable">
             <thead>
               <tr>
@@ -181,6 +174,7 @@ export function Reports({
               </tr>
             </tbody>
           </table>
+          </div>
         )}
 
         {summary && summary.rows.length > 0 && (
@@ -191,6 +185,7 @@ export function Reports({
           </div>
         )}
         {details && (
+          <div className="tablewrap">
           <table className="rtable detail">
             <thead>
               <tr>
@@ -219,6 +214,7 @@ export function Reports({
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </div>
