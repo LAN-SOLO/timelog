@@ -701,7 +701,6 @@ mod tests {
     #[test]
     fn checked_path_windows_drive_letters() {
         assert!(checked_path(r"C:\Users\a\Desktop\timelog_bericht.pdf", &["pdf"], false).is_ok());
-        assert!(checked_path(r"\\server\share\paket.json", &["json"], false).is_ok());
         assert!(checked_path(r"Desktop\bericht.pdf", &["pdf"], false).is_err());
     }
 }

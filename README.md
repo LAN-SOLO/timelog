@@ -10,6 +10,13 @@ Zeiterfassung mit zwei Modi — für Einzelne und Teams, lokal, ohne Konto.
 DE/EN, Dunkel/Hell, signierte In-App-Updates. Keine Telemetrie.
 Im Vorabzugang ist der Expertenmodus frei umschaltbar (keine Lizenzprüfung).
 
+**Version 1.0.0** — Test-Release nach Funktions- und Sicherheitsaudit, Details in
+[`AUDIT-1.0.md`](AUDIT-1.0.md). Neu gegenüber 0.2: Esc verwirft Zeilen-Änderungen
+wirklich, Dezimalwerte (37,5 h / 85,50 €) eingebbar, Dashboard-Balken sichtbar,
+CSV-Schutz gegen Formel-Injektion, defekte `data.json` wird gesichert statt
+überschrieben, Datei-Kommandos auf .csv/.json/.pdf begrenzt, Backend-Meldungen
+auf DE/EN.
+
 ## Web-Version (Browser / Telefon)
 
 Die Oberfläche läuft auch ohne Tauri als Webapp: `pnpm build` erzeugt in `dist/` eine
@@ -30,7 +37,12 @@ Lokal prüfen: `pnpm dev` und http://localhost:1434 im Browser öffnen (ohne Tau
 pnpm install
 pnpm tauri dev
 cargo test --workspace
+pnpm build                       # tsc + Vite
 ```
+
+Web-UI-E2E (headless Chrome, ohne Zusatzpakete): siehe Kopf von
+`scripts/e2e/web-e2e.mjs` — `pnpm dev`, Chrome mit `--remote-debugging-port=9222`,
+dann `node scripts/e2e/web-e2e.mjs /tmp`.
 
 Der Rust-Kern (`core/`, Crate `timelog-core`) ist Tauri-frei und testbar:
 Dauer/Rundung, Wochen- und Zeitraumlogik, Aggregation je Projekt/Kunde/Person/Tätigkeit,
