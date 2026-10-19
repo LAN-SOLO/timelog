@@ -22,6 +22,19 @@ pub fn csv_field(s: &str, delim: char) -> String {
     }
 }
 
+/// Freitext (Namen, Notizen, Tags) gegen Formel-Injektion in Excel/LibreOffice
+/// absichern: Beginnt ein Feld mit `=`, `+`, `-`, `@`, Tab oder CR, wertet die
+/// Tabellenkalkulation es sonst als Formel aus (z. B. `=HYPERLINK(…)` aus
+/// einem importierten Team-Paket). Ein vorangestelltes `'` macht es zu Text
+/// (OWASP-Empfehlung). Zahlen/Zeiten erzeugt timelog selbst — die laufen
+/// nicht hier durch.
+pub fn csv_text(s: &str) -> String {
+    match s.chars().next() {
+        Some('=' | '+' | '-' | '@' | '\t' | '\r') => format!("'{s}"),
+        _ => s.to_string(),
+    }
+}
+
 pub fn csv_line(fields: &[String], delim: char) -> String {
     let mut out = fields
         .iter()
@@ -141,19 +154,21 @@ pub fn entries_csv(
             fmt_dec(&fmt_hours(secs), lang),
             fmt_hm(rounded),
             fmt_dec(&fmt_hours(rounded), lang),
-            data.person(&e.person_id).map(|p| p.name.clone()).unwrap_or_default(),
-            client,
-            project.map(|p| p.name.clone()).unwrap_or_default(),
-            e.task_id
-                .as_deref()
-                .and_then(|t| data.task(t))
-                .map(|t| t.name.clone())
-                .unwrap_or_default(),
+            csv_text(&data.person(&e.person_id).map(|p| p.name.clone()).unwrap_or_default()),
+            csv_text(&client),
+            csv_text(&project.map(|p| p.name.clone()).unwrap_or_default()),
+            csv_text(
+                &e.task_id
+                    .as_deref()
+                    .and_then(|t| data.task(t))
+                    .map(|t| t.name.clone())
+                    .unwrap_or_default(),
+            ),
             if e.billable { l.yes } else { l.no }.to_string(),
             if rate > 0.0 { fmt_money(rate, lang) } else { String::new() },
             fmt_money(amount_for(data, e, rounded), lang),
-            e.tags.join(", "),
-            e.note.clone(),
+            csv_text(&e.tags.join(", ")),
+            csv_text(&e.note),
             if e.locked { l.yes } else { l.no }.to_string(),
         ];
         let row: Vec<String> = keep.iter().map(|&i| all[i].clone()).collect();
@@ -190,9 +205,9 @@ pub fn summary_csv(summary: &Summary, by: GroupBy, lang: &str, delim: char, simp
         r
     };
     for r in &summary.rows {
-        let label = if r.label.is_empty() { l.unassigned } else { r.label.as_str() };
+        let label = if r.label.is_empty() { l.unassigned.to_string() } else { csv_text(&r.label) };
         out.push_str(&csv_line(
-            &row(label, r.entries, r.seconds, r.rounded_seconds, r.billable_seconds, r.amount),
+            &row(&label, r.entries, r.seconds, r.rounded_seconds, r.billable_seconds, r.amount),
             delim,
         ));
     }
@@ -227,6 +242,26 @@ mod tests {
         assert_eq!(csv_field("line1\nline2", ';'), "\"line1\nline2\"");
         assert_eq!(csv_field(" lead", ';'), "\" lead\"");
         assert_eq!(csv_field("", ';'), "");
+    }
+
+    #[test]
+    fn formula_injection_is_neutralised() {
+        assert_eq!(csv_text("=HYPERLINK(\"http://x\")"), "'=HYPERLINK(\"http://x\")");
+        assert_eq!(csv_text("+49 160"), "'+49 160");
+        assert_eq!(csv_text("-Meeting"), "'-Meeting");
+        assert_eq!(csv_text("@SUM(A1)"), "'@SUM(A1)");
+        assert_eq!(csv_text("\tx"), "'\tx");
+        assert_eq!(csv_text("Kickoff"), "Kickoff");
+        assert_eq!(csv_text(""), "");
+        let mut d = data();
+        d.entries[0].note = "=1+1".into();
+        d.projects[0].name = "@evil".into();
+        let refs: Vec<&Entry> = d.entries.iter().collect();
+        let csv = entries_csv(&d, &refs, &range(), 0, "en", ',', false, Utc::now());
+        assert!(csv.contains(",'@evil,"));
+        assert!(csv.contains(",'=1+1,"));
+        let s = summarize(&d, &range(), GroupBy::Project, &Filter::default(), 0, Utc::now());
+        assert!(summary_csv(&s, GroupBy::Project, "en", ',', false).contains("\r\n'@evil,1,"));
     }
 
     #[test]

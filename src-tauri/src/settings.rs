@@ -51,6 +51,41 @@ impl Default for Settings {
     }
 }
 
+impl Settings {
+    /// Werte aus dem Frontend auf gültige Bereiche bringen — die Datei wird
+    /// sonst mit Unsinn gespeichert und z. B. eine Rundung von 7 Minuten
+    /// würde Summen und Exporte verfälschen.
+    pub fn sanitized(mut self) -> Settings {
+        let d = Settings::default();
+        if self.language != "de" && self.language != "en" {
+            self.language = d.language;
+        }
+        if self.mode != "simple" && self.mode != "expert" {
+            self.mode = d.mode;
+        }
+        if self.theme != "dark" && self.theme != "light" {
+            self.theme = d.theme;
+        }
+        if !["blue", "emerald", "violet", "amber"].contains(&self.accent.as_str()) {
+            self.accent = d.accent;
+        }
+        if ![0, 5, 15].contains(&self.rounding) {
+            self.rounding = 0;
+        }
+        if self.week_start != "monday" && self.week_start != "sunday" {
+            self.week_start = d.week_start;
+        }
+        if !self.weekly_hours.is_finite() {
+            self.weekly_hours = 0.0;
+        }
+        self.weekly_hours = self.weekly_hours.clamp(0.0, 168.0);
+        self.idle_minutes = self.idle_minutes.min(240);
+        self.end_of_day_hour = self.end_of_day_hour.min(23);
+        self.company_name = self.company_name.chars().take(200).collect();
+        self
+    }
+}
+
 fn sys_locale_is_german() -> bool {
     sys_locale::get_locale()
         .map(|l| l.to_lowercase().starts_with("de"))
@@ -80,14 +115,59 @@ fn settings_path(app: &tauri::AppHandle) -> PathBuf {
 }
 
 pub fn load(app: &tauri::AppHandle) -> Settings {
-    std::fs::read_to_string(settings_path(app))
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default()
+    let path = settings_path(app);
+    match std::fs::read_to_string(&path) {
+        Ok(s) => match serde_json::from_str::<Settings>(&s) {
+            Ok(v) => v.sanitized(),
+            Err(e) => {
+                eprintln!("timelog: settings.json unlesbar ({e}) — Standardwerte, Original gesichert");
+                crate::store::backup_corrupt(&path);
+                Settings::default()
+            }
+        },
+        Err(_) => Settings::default(),
+    }
 }
 
 pub fn store(app: &tauri::AppHandle, settings: &Settings) {
     if let Ok(json) = serde_json::to_string_pretty(settings) {
         let _ = crate::store::write_atomic(&settings_path(app), json.as_bytes());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sanitized_clamps_and_resets() {
+        let s = Settings {
+            language: "fr".into(),
+            mode: "pro".into(),
+            theme: "neon".into(),
+            accent: "pink".into(),
+            rounding: 7,
+            week_start: "friday".into(),
+            weekly_hours: f64::NAN,
+            idle_minutes: 9999,
+            end_of_day_hour: 30,
+            company_name: "x".repeat(500),
+            ..Settings::default()
+        }
+        .sanitized();
+        assert!(s.language == "de" || s.language == "en");
+        assert_eq!(s.mode, "simple");
+        assert_eq!(s.theme, "dark");
+        assert_eq!(s.accent, "blue");
+        assert_eq!(s.rounding, 0);
+        assert_eq!(s.week_start, "monday");
+        assert_eq!(s.weekly_hours, 0.0);
+        assert_eq!(s.idle_minutes, 240);
+        assert_eq!(s.end_of_day_hour, 23);
+        assert_eq!(s.company_name.chars().count(), 200);
+        let ok = Settings { rounding: 15, weekly_hours: 37.5, language: "en".into(), ..Settings::default() }.sanitized();
+        assert_eq!(ok.rounding, 15);
+        assert_eq!(ok.weekly_hours, 37.5);
+        assert_eq!(ok.language, "en");
     }
 }

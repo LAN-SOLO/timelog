@@ -8,7 +8,7 @@ pub mod model;
 pub mod summary;
 pub mod time;
 
-pub use csv::{csv_field, csv_line, entries_csv, summary_csv};
+pub use csv::{csv_field, csv_line, csv_text, entries_csv, summary_csv};
 pub use merge::{merge_into, MergeReport, Package};
 pub use model::{Client, Data, Entry, Person, Project, Task, WeekLock};
 pub use summary::{budget_usage, summarize, weekly_totals, BudgetUsage, Filter, GroupBy, Summary, SummaryRow, WeekTotal};

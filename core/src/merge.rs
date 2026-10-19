@@ -29,12 +29,27 @@ impl Package {
     }
 
     pub fn parse(json: &str) -> Result<Package, String> {
-        let p: Package = serde_json::from_str(json).map_err(|e| format!("JSON ungültig: {e}"))?;
+        Package::parse_localized(json, false)
+    }
+
+    /// Wie `parse`, Fehlermeldung auf Deutsch (`en == false`) oder Englisch.
+    pub fn parse_localized(json: &str, en: bool) -> Result<Package, String> {
+        let p: Package = serde_json::from_str(json).map_err(|e| {
+            if en {
+                format!("Invalid JSON: {e}")
+            } else {
+                format!("JSON ungültig: {e}")
+            }
+        })?;
         if p.format != PACKAGE_FORMAT {
-            return Err("Kein timelog-Paket (format)".into());
+            return Err(if en { "Not a timelog package (format)" } else { "Kein timelog-Paket (format)" }.into());
         }
         if p.version > PACKAGE_VERSION {
-            return Err(format!("Paketversion {} ist neuer als diese App", p.version));
+            return Err(if en {
+                format!("Package version {} is newer than this app", p.version)
+            } else {
+                format!("Paketversion {} ist neuer als diese App", p.version)
+            });
         }
         Ok(p)
     }
@@ -171,5 +186,9 @@ mod tests {
         assert_eq!(back.data, d);
         assert!(Package::parse("{\"format\":\"other\",\"version\":1,\"exportedAt\":\"\",\"data\":{}}").is_err());
         assert!(Package::parse("nicht json").is_err());
+        assert!(Package::parse_localized("nope", true).unwrap_err().starts_with("Invalid JSON"));
+        assert!(Package::parse_localized("{\"format\":\"timelog-package\",\"version\":99,\"exportedAt\":\"\",\"data\":{}}", true)
+            .unwrap_err()
+            .contains("newer"));
     }
 }

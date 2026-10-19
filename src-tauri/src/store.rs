@@ -1,7 +1,12 @@
 //! Datenbestand als eine JSON-Datei (`data.json`) im App-Datenordner —
-//! atomar geschrieben (Temp-Datei + rename), damit ein Absturz beim Schreiben
-//! nie einen halben Bestand hinterlässt.
+//! atomar geschrieben (Temp-Datei + fsync + rename), damit ein Absturz beim
+//! Schreiben nie einen halben Bestand hinterlässt.
+//!
+//! Eine unlesbare `data.json` wird NICHT stillschweigend überschrieben: Sie
+//! wird vorher als `data.json.corrupt-<Zeitstempel>` gesichert, dann startet
+//! die App mit leerem Bestand. So geht nach einem Fehler nichts verloren.
 
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use timelog_core::{Data, Person};
 
@@ -10,16 +15,45 @@ pub fn data_file(dir: &Path) -> PathBuf {
 }
 
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    let tmp = path.with_extension("json.tmp");
-    std::fs::write(&tmp, bytes).map_err(|e| format!("Schreiben fehlgeschlagen: {e}"))?;
-    std::fs::rename(&tmp, path).map_err(|e| format!("Umbenennen fehlgeschlagen: {e}"))
+    let mut tmp_name = path.file_name().map(|n| n.to_os_string()).unwrap_or_default();
+    tmp_name.push(".tmp");
+    let tmp = path.with_file_name(tmp_name);
+    {
+        let mut f = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
+        f.write_all(bytes).map_err(|e| e.to_string())?;
+        // Inhalt auf die Platte, bevor umbenannt wird — sonst kann nach einem
+        // Stromausfall eine leere Datei unter dem alten Namen liegen.
+        f.sync_all().map_err(|e| e.to_string())?;
+    }
+    // std::fs::rename ersetzt das Ziel auch unter Windows (MoveFileExW mit
+    // MOVEFILE_REPLACE_EXISTING).
+    std::fs::rename(&tmp, path).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        e.to_string()
+    })
+}
+
+/// Unlesbare Datei beiseitelegen (`<name>.corrupt-<YYYYmmdd-HHMMSS>`).
+pub fn backup_corrupt(path: &Path) -> Option<PathBuf> {
+    let mut name = path.file_name()?.to_os_string();
+    name.push(format!(".corrupt-{}", chrono::Local::now().format("%Y%m%d-%H%M%S")));
+    let target = path.with_file_name(name);
+    std::fs::copy(path, &target).ok().map(|_| target)
 }
 
 pub fn load(dir: &Path, language: &str) -> Data {
-    let mut data: Data = std::fs::read_to_string(data_file(dir))
-        .ok()
-        .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default();
+    let path = data_file(dir);
+    let mut data: Data = match std::fs::read_to_string(&path) {
+        Ok(s) => match serde_json::from_str(&s) {
+            Ok(d) => d,
+            Err(e) => {
+                let saved = backup_corrupt(&path);
+                eprintln!("timelog: data.json unlesbar ({e}) — gesichert als {saved:?}, starte leer");
+                Data::default()
+            }
+        },
+        Err(_) => Data::default(),
+    };
     ensure_me(&mut data, language);
     data
 }
@@ -47,4 +81,55 @@ pub fn ensure_me(data: &mut Data, language: &str) {
 pub fn save(dir: &Path, data: &Data) -> Result<(), String> {
     let json = serde_json::to_string_pretty(data).map_err(|e| e.to_string())?;
     write_atomic(&data_file(dir), json.as_bytes())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tmpdir(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("timelog-store-{tag}-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn save_and_load_roundtrip() {
+        let dir = tmpdir("rt");
+        let mut d = Data::default();
+        ensure_me(&mut d, "de");
+        assert_eq!(d.persons[0].name, "Ich");
+        save(&dir, &d).unwrap();
+        save(&dir, &d).unwrap(); // Ersetzen einer vorhandenen Datei (Windows!)
+        let back = load(&dir, "en");
+        assert_eq!(back, d);
+        assert!(!dir.join("data.json.tmp").exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn corrupt_file_is_backed_up_not_lost() {
+        let dir = tmpdir("corrupt");
+        std::fs::write(data_file(&dir), b"{ kaputt").unwrap();
+        let d = load(&dir, "en");
+        assert_eq!(d.persons.len(), 1);
+        assert_eq!(d.persons[0].name, "Me");
+        let backups: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().starts_with("data.json.corrupt-"))
+            .collect();
+        assert_eq!(backups.len(), 1);
+        assert_eq!(std::fs::read(backups[0].path()).unwrap(), b"{ kaputt");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn missing_file_starts_empty_with_me() {
+        let dir = tmpdir("missing");
+        let d = load(&dir, "de");
+        assert_eq!(d.persons.len(), 1);
+        assert_eq!(d.me_person_id, d.persons[0].id);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }

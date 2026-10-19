@@ -7,8 +7,9 @@ use crate::store;
 use base64::Engine;
 use chrono::{Local, Utc};
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use std::sync::Arc;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 use timelog_core::{
     budget_usage, entries_csv, entry_week_start, merge_into, parse_rfc3339, summarize, summary_csv, BudgetUsage, Client, Data, Entry, Filter, GroupBy, MergeReport, Package, Person, Project, Range, Summary, Task,
     WeekLock, WeekStart, WeekTotal,
@@ -48,37 +49,58 @@ fn new_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
-fn range_from(from: &str, to: &str) -> Result<Range, String> {
-    let from = parse_rfc3339(from).ok_or("Ungültiger Zeitraum (von)")?;
-    let to = parse_rfc3339(to).ok_or("Ungültiger Zeitraum (bis)")?;
+fn range_from(from: &str, to: &str, en: bool) -> Result<Range, String> {
+    let from = parse_rfc3339(from).ok_or_else(|| tr(en, "Ungültiger Zeitraum (von)", "Invalid range (from)"))?;
+    let to = parse_rfc3339(to).ok_or_else(|| tr(en, "Ungültiger Zeitraum (bis)", "Invalid range (to)"))?;
     if to < from {
-        return Err("Zeitraum: „bis“ liegt vor „von“".into());
+        return Err(tr(en, "Zeitraum: „bis“ liegt vor „von“", "Range: “to” is before “from”"));
     }
     Ok(Range { from, to })
 }
 
+/// Meldung in der eingestellten Sprache (Fehler landen als Toast in der Oberfläche).
+fn tr(en: bool, de: &str, english: &str) -> String {
+    if en { english } else { de }.to_string()
+}
+
+fn is_en(st: &Shared) -> bool {
+    lock(&st.settings).language != "de"
+}
+
+/// Mutex sperren — auch nach einem Panic in einem anderen Kommando (Poisoning)
+/// bleibt die App bedienbar, statt bei jedem weiteren Aufruf abzustürzen.
+fn lock<T>(m: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 /// Änderung am Bestand ausführen, speichern, Bestand zurückgeben.
+/// Transaktional: geändert wird eine Kopie; erst wenn Prüfung UND Speichern
+/// klappen, ersetzt sie den Bestand im Speicher. Ein Fehler (z. B. volle
+/// Platte, gesperrte Datei unter Windows) hinterlässt keinen halben Zustand.
 fn mutate(st: &Shared, f: impl FnOnce(&mut Data) -> Result<(), String>) -> Result<Data, String> {
-    let mut data = st.data.lock().unwrap();
-    f(&mut data)?;
-    store::save(&st.data_dir, &data)?;
+    let en = is_en(st);
+    let mut data = lock(&st.data);
+    let mut next = data.clone();
+    f(&mut next)?;
+    store::save(&st.data_dir, &next).map_err(|e| format!("{}: {e}", tr(en, "Speichern fehlgeschlagen", "Saving failed")))?;
+    *data = next;
     Ok(data.clone())
 }
 
 fn week_start_setting(st: &Shared) -> WeekStart {
-    WeekStart::parse(&st.settings.lock().unwrap().week_start)
+    WeekStart::parse(&st.settings.lock().unwrap_or_else(|e| e.into_inner()).week_start)
 }
 
 fn rounding(st: &Shared) -> u32 {
-    st.settings.lock().unwrap().rounding
+    st.settings.lock().unwrap_or_else(|e| e.into_inner()).rounding
 }
 
 fn lang(st: &Shared) -> String {
-    st.settings.lock().unwrap().language.clone()
+    st.settings.lock().unwrap_or_else(|e| e.into_inner()).language.clone()
 }
 
 fn simple_mode(st: &Shared) -> bool {
-    st.settings.lock().unwrap().mode != "expert"
+    st.settings.lock().unwrap_or_else(|e| e.into_inner()).mode != "expert"
 }
 
 fn entry_locked(data: &Data, e: &Entry, ws: WeekStart) -> bool {
@@ -92,26 +114,28 @@ fn entry_locked(data: &Data, e: &Entry, ws: WeekStart) -> bool {
 
 #[tauri::command]
 pub fn get_settings(st: State<'_, Shared>) -> Settings {
-    st.settings.lock().unwrap().clone()
+    st.settings.lock().unwrap_or_else(|e| e.into_inner()).clone()
 }
 
 #[tauri::command]
 pub fn set_settings(app: AppHandle, st: State<'_, Shared>, settings: Settings) {
+    let settings = settings.sanitized();
     settings::store(&app, &settings);
-    *st.settings.lock().unwrap() = settings;
+    *st.settings.lock().unwrap_or_else(|e| e.into_inner()) = settings;
 }
 
 // --- data -------------------------------------------------------------------
 
 #[tauri::command]
 pub fn get_data(st: State<'_, Shared>) -> Data {
-    st.data.lock().unwrap().clone()
+    st.data.lock().unwrap_or_else(|e| e.into_inner()).clone()
 }
 
 #[tauri::command]
 pub fn save_person(st: State<'_, Shared>, mut person: Person) -> Result<Data, String> {
+    let en = is_en(&st);
     if person.name.trim().is_empty() {
-        return Err("Bitte einen Namen angeben.".into());
+        return Err(tr(en, "Bitte einen Namen angeben.", "Please enter a name."));
     }
     mutate(&st, |d| {
         person.updated_at = now_iso();
@@ -129,12 +153,13 @@ pub fn save_person(st: State<'_, Shared>, mut person: Person) -> Result<Data, St
 
 #[tauri::command]
 pub fn delete_person(st: State<'_, Shared>, id: String) -> Result<Data, String> {
+    let en = is_en(&st);
     mutate(&st, |d| {
         if d.me_person_id == id {
-            return Err("Die eigene Person kann nicht gelöscht werden.".into());
+            return Err(tr(en, "Die eigene Person kann nicht gelöscht werden.", "You cannot delete yourself."));
         }
         if d.entries.iter().any(|e| e.person_id == id) {
-            return Err("Diese Person hat Einträge — bitte archivieren statt löschen.".into());
+            return Err(tr(en, "Diese Person hat Einträge — bitte archivieren statt löschen.", "This person has entries — archive instead of deleting."));
         }
         d.persons.retain(|p| p.id != id);
         d.locks.retain(|l| l.person_id != id);
@@ -144,8 +169,9 @@ pub fn delete_person(st: State<'_, Shared>, id: String) -> Result<Data, String> 
 
 #[tauri::command]
 pub fn save_client(st: State<'_, Shared>, mut client: Client) -> Result<Data, String> {
+    let en = is_en(&st);
     if client.name.trim().is_empty() {
-        return Err("Bitte einen Namen angeben.".into());
+        return Err(tr(en, "Bitte einen Namen angeben.", "Please enter a name."));
     }
     mutate(&st, |d| {
         client.updated_at = now_iso();
@@ -176,15 +202,16 @@ pub fn delete_client(st: State<'_, Shared>, id: String) -> Result<Data, String> 
 
 #[tauri::command]
 pub fn save_project(st: State<'_, Shared>, mut project: Project) -> Result<Data, String> {
+    let en = is_en(&st);
     if project.name.trim().is_empty() {
-        return Err("Bitte einen Projektnamen angeben.".into());
+        return Err(tr(en, "Bitte einen Projektnamen angeben.", "Please enter a project name."));
     }
     mutate(&st, |d| {
         if let Some(c) = &project.client_id {
             if c.is_empty() {
                 project.client_id = None;
             } else if d.client(c).is_none() {
-                return Err("Kunde nicht gefunden.".into());
+                return Err(tr(en, "Kunde nicht gefunden.", "Client not found."));
             }
         }
         project.updated_at = now_iso();
@@ -202,9 +229,10 @@ pub fn save_project(st: State<'_, Shared>, mut project: Project) -> Result<Data,
 
 #[tauri::command]
 pub fn delete_project(st: State<'_, Shared>, id: String) -> Result<Data, String> {
+    let en = is_en(&st);
     mutate(&st, |d| {
         if d.entries.iter().any(|e| e.project_id == id) {
-            return Err("Dieses Projekt hat Einträge — bitte archivieren statt löschen.".into());
+            return Err(tr(en, "Dieses Projekt hat Einträge — bitte archivieren statt löschen.", "This project has entries — archive instead of deleting."));
         }
         d.projects.retain(|p| p.id != id);
         d.tasks.retain(|t| t.project_id != id);
@@ -214,12 +242,13 @@ pub fn delete_project(st: State<'_, Shared>, id: String) -> Result<Data, String>
 
 #[tauri::command]
 pub fn save_task(st: State<'_, Shared>, mut task: Task) -> Result<Data, String> {
+    let en = is_en(&st);
     if task.name.trim().is_empty() {
-        return Err("Bitte einen Namen angeben.".into());
+        return Err(tr(en, "Bitte einen Namen angeben.", "Please enter a name."));
     }
     mutate(&st, |d| {
         if d.project(&task.project_id).is_none() {
-            return Err("Projekt nicht gefunden.".into());
+            return Err(tr(en, "Projekt nicht gefunden.", "Project not found."));
         }
         task.updated_at = now_iso();
         if task.id.is_empty() {
@@ -251,10 +280,11 @@ pub fn delete_task(st: State<'_, Shared>, id: String) -> Result<Data, String> {
 
 #[tauri::command]
 pub fn save_entry(st: State<'_, Shared>, mut entry: Entry) -> Result<Data, String> {
+    let en = is_en(&st);
     let ws = week_start_setting(&st);
     mutate(&st, |d| {
         if d.project(&entry.project_id).is_none() {
-            return Err("Bitte ein Projekt wählen.".into());
+            return Err(tr(en, "Bitte ein Projekt wählen.", "Please choose a project."));
         }
         if entry.person_id.is_empty() || d.person(&entry.person_id).is_none() {
             entry.person_id = d.me_person_id.clone();
@@ -266,11 +296,11 @@ pub fn save_entry(st: State<'_, Shared>, mut entry: Entry) -> Result<Data, Strin
                 entry.task_id = None;
             }
         }
-        let start = parse_rfc3339(&entry.start).ok_or("Ungültige Startzeit.")?;
+        let start = parse_rfc3339(&entry.start).ok_or_else(|| tr(en, "Ungültige Startzeit.", "Invalid start time."))?;
         if let Some(end) = &entry.end {
-            let end = parse_rfc3339(end).ok_or("Ungültige Endzeit.")?;
+            let end = parse_rfc3339(end).ok_or_else(|| tr(en, "Ungültige Endzeit.", "Invalid end time."))?;
             if end < start {
-                return Err("Das Ende liegt vor dem Start.".into());
+                return Err(tr(en, "Das Ende liegt vor dem Start.", "End is before start."));
             }
         }
         entry.tags = entry
@@ -282,12 +312,12 @@ pub fn save_entry(st: State<'_, Shared>, mut entry: Entry) -> Result<Data, Strin
         // Sperren: weder aus einer gesperrten Woche heraus noch in eine hinein ändern.
         if let Some(existing) = d.entries.iter().find(|e| e.id == entry.id) {
             if entry_locked(d, existing, ws) {
-                return Err("Diese Woche ist abgeschlossen — zuerst wieder öffnen.".into());
+                return Err(tr(en, "Diese Woche ist abgeschlossen — zuerst wieder öffnen.", "This week is closed — reopen it first."));
             }
         }
         entry.locked = false;
         if entry_locked(d, &entry, ws) {
-            return Err("Die Zielwoche ist abgeschlossen — zuerst wieder öffnen.".into());
+            return Err(tr(en, "Die Zielwoche ist abgeschlossen — zuerst wieder öffnen.", "The target week is closed — reopen it first."));
         }
         // Nur ein laufender Timer je Person.
         if entry.end.is_none() {
@@ -316,11 +346,12 @@ pub fn save_entry(st: State<'_, Shared>, mut entry: Entry) -> Result<Data, Strin
 
 #[tauri::command]
 pub fn delete_entry(st: State<'_, Shared>, id: String) -> Result<Data, String> {
+    let en = is_en(&st);
     let ws = week_start_setting(&st);
     mutate(&st, |d| {
         if let Some(e) = d.entries.iter().find(|e| e.id == id) {
             if entry_locked(d, e, ws) {
-                return Err("Diese Woche ist abgeschlossen — zuerst wieder öffnen.".into());
+                return Err(tr(en, "Diese Woche ist abgeschlossen — zuerst wieder öffnen.", "This week is closed — reopen it first."));
             }
         }
         d.entries.retain(|e| e.id != id);
@@ -330,11 +361,12 @@ pub fn delete_entry(st: State<'_, Shared>, id: String) -> Result<Data, String> {
 
 #[tauri::command]
 pub fn start_timer(st: State<'_, Shared>, input: TimerStart) -> Result<Data, String> {
+    let en = is_en(&st);
     let ws = week_start_setting(&st);
     mutate(&st, |d| {
-        let project = d.project(&input.project_id).ok_or("Bitte ein Projekt wählen.")?.clone();
+        let project = d.project(&input.project_id).ok_or_else(|| tr(en, "Bitte ein Projekt wählen.", "Please choose a project."))?.clone();
         if project.archived {
-            return Err("Das Projekt ist archiviert.".into());
+            return Err(tr(en, "Das Projekt ist archiviert.", "The project is archived."));
         }
         let person_id = input
             .person_id
@@ -366,7 +398,7 @@ pub fn start_timer(st: State<'_, Shared>, input: TimerStart) -> Result<Data, Str
             updated_at: now,
         };
         if entry_locked(d, &entry, ws) {
-            return Err("Die aktuelle Woche ist abgeschlossen — zuerst wieder öffnen.".into());
+            return Err(tr(en, "Die aktuelle Woche ist abgeschlossen — zuerst wieder öffnen.", "The current week is closed — reopen it first."));
         }
         d.entries.push(entry);
         Ok(())
@@ -387,7 +419,7 @@ pub fn stop_timer(st: State<'_, Shared>) -> Result<Data, String> {
 
 #[tauri::command]
 pub fn running(st: State<'_, Shared>) -> Option<Entry> {
-    st.data.lock().unwrap().entries.iter().find(|e| e.end.is_none()).cloned()
+    st.data.lock().unwrap_or_else(|e| e.into_inner()).entries.iter().find(|e| e.end.is_none()).cloned()
 }
 
 // --- reports ----------------------------------------------------------------
@@ -400,14 +432,14 @@ pub fn summary(
     group_by: String,
     filter: Filter,
 ) -> Result<Summary, String> {
-    let range = range_from(&from, &to)?;
-    let data = st.data.lock().unwrap();
+    let range = range_from(&from, &to, is_en(&st))?;
+    let data = st.data.lock().unwrap_or_else(|e| e.into_inner());
     Ok(summarize(&data, &range, GroupBy::parse(&group_by), &filter, rounding(&st), Utc::now()))
 }
 
 #[tauri::command]
 pub fn weekly_totals(st: State<'_, Shared>, weeks: u32, filter: Filter) -> Vec<WeekTotal> {
-    let data = st.data.lock().unwrap();
+    let data = st.data.lock().unwrap_or_else(|e| e.into_inner());
     timelog_core::weekly_totals(
         &data,
         Local::now().date_naive(),
@@ -421,7 +453,7 @@ pub fn weekly_totals(st: State<'_, Shared>, weeks: u32, filter: Filter) -> Vec<W
 
 #[tauri::command]
 pub fn budget_usages(st: State<'_, Shared>) -> Vec<BudgetUsage> {
-    let data = st.data.lock().unwrap();
+    let data = st.data.lock().unwrap_or_else(|e| e.into_inner());
     let r = rounding(&st);
     let now = Utc::now();
     data.projects
@@ -442,8 +474,8 @@ pub fn export_csv(
     group_by: String,
     filter: Filter,
 ) -> Result<String, String> {
-    let range = range_from(&from, &to)?;
-    let data = st.data.lock().unwrap();
+    let range = range_from(&from, &to, is_en(&st))?;
+    let data = st.data.lock().unwrap_or_else(|e| e.into_inner());
     let lang = lang(&st);
     let delim = if lang == "de" { ';' } else { ',' };
     let simple = simple_mode(&st);
@@ -464,7 +496,7 @@ pub fn export_csv(
 /// Eigene (oder alle) Daten als JSON-Paket für die Zusammenführung beim PL.
 #[tauri::command]
 pub fn export_package(st: State<'_, Shared>, person_id: Option<String>) -> Result<String, String> {
-    let data = st.data.lock().unwrap();
+    let data = st.data.lock().unwrap_or_else(|e| e.into_inner());
     let mut out = data.clone();
     if let Some(p) = person_id.filter(|p| !p.is_empty()) {
         out.entries.retain(|e| e.person_id == p);
@@ -477,7 +509,7 @@ pub fn export_package(st: State<'_, Shared>, person_id: Option<String>) -> Resul
 
 #[tauri::command]
 pub fn import_package(st: State<'_, Shared>, json: String) -> Result<ImportResult, String> {
-    let pkg = Package::parse(&json)?;
+    let pkg = Package::parse_localized(&json, is_en(&st))?;
     let mut report = MergeReport::default();
     let data = mutate(&st, |d| {
         report = merge_into(d, &pkg.data);
@@ -490,10 +522,11 @@ pub fn import_package(st: State<'_, Shared>, json: String) -> Result<ImportResul
 
 #[tauri::command]
 pub fn lock_week(st: State<'_, Shared>, person_id: String, week_start: String) -> Result<Data, String> {
+    let en = is_en(&st);
     let ws = week_start_setting(&st);
     mutate(&st, |d| {
         if d.person(&person_id).is_none() {
-            return Err("Person nicht gefunden.".into());
+            return Err(tr(en, "Person nicht gefunden.", "Person not found."));
         }
         if !d.is_week_locked(&person_id, &week_start) {
             d.locks.push(WeekLock {
@@ -533,23 +566,67 @@ pub fn unlock_week(st: State<'_, Shared>, person_id: String, week_start: String)
 }
 
 // --- files ------------------------------------------------------------------
+//
+// Die Pfade kommen aus dem Speichern-/Öffnen-Dialog des Frontends. Weil jedes
+// Skript im WebView diese Kommandos aufrufen könnte, gelten harte Grenzen:
+// nur absolute Pfade, nur die Dateitypen, die timelog wirklich schreibt bzw.
+// liest, nur reguläre Dateien und eine Größengrenze beim Lesen.
 
-#[tauri::command]
-pub fn read_text_file(path: String) -> Result<String, String> {
-    std::fs::read_to_string(&path).map_err(|e| format!("Lesen fehlgeschlagen: {e}"))
+/// Größte Datei, die `read_text_file` liest (Team-Paket / Backup).
+pub const MAX_READ_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Prüft einen Pfad aus dem Dialog: absolut und mit erlaubter Endung
+/// (Groß-/Kleinschreibung egal — Windows liefert gern `.CSV`).
+pub fn checked_path(path: &str, allowed: &[&str], en: bool) -> Result<PathBuf, String> {
+    let p = PathBuf::from(path);
+    if path.trim().is_empty() || !p.is_absolute() {
+        return Err(tr(en, "Ungültiger Dateipfad.", "Invalid file path."));
+    }
+    let ext = p
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .unwrap_or_default();
+    if !allowed.contains(&ext.as_str()) {
+        let list = allowed.iter().map(|e| format!(".{e}")).collect::<Vec<_>>().join(", ");
+        return Err(format!("{} {list}", tr(en, "Dateityp nicht erlaubt — erlaubt:", "File type not allowed — allowed:")));
+    }
+    if p.is_dir() {
+        return Err(tr(en, "Das Ziel ist ein Ordner.", "The target is a folder."));
+    }
+    Ok(p)
 }
 
 #[tauri::command]
-pub fn write_text_file(path: String, content: String) -> Result<(), String> {
-    std::fs::write(&path, content.as_bytes()).map_err(|e| format!("Schreiben fehlgeschlagen: {e}"))
+pub fn read_text_file(st: State<'_, Shared>, path: String) -> Result<String, String> {
+    let en = is_en(&st);
+    let p = checked_path(&path, &["json"], en)?;
+    let fail = |e: std::io::Error| format!("{}: {e}", tr(en, "Lesen fehlgeschlagen", "Reading failed"));
+    let meta = std::fs::metadata(&p).map_err(fail)?;
+    if !meta.is_file() {
+        return Err(tr(en, "Keine reguläre Datei.", "Not a regular file."));
+    }
+    if meta.len() > MAX_READ_BYTES {
+        return Err(tr(en, "Datei zu groß (max. 64 MB).", "File too large (max. 64 MB)."));
+    }
+    std::fs::read_to_string(&p).map_err(fail)
 }
 
 #[tauri::command]
-pub fn write_file(path: String, data_base64: String) -> Result<(), String> {
+pub fn write_text_file(st: State<'_, Shared>, path: String, content: String) -> Result<(), String> {
+    let en = is_en(&st);
+    let p = checked_path(&path, &["csv", "json"], en)?;
+    std::fs::write(&p, content.as_bytes()).map_err(|e| format!("{}: {e}", tr(en, "Schreiben fehlgeschlagen", "Writing failed")))
+}
+
+#[tauri::command]
+pub fn write_file(st: State<'_, Shared>, path: String, data_base64: String) -> Result<(), String> {
+    let en = is_en(&st);
+    let p = checked_path(&path, &["pdf"], en)?;
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(data_base64)
         .map_err(|e| e.to_string())?;
-    std::fs::write(&path, bytes).map_err(|e| format!("Schreiben fehlgeschlagen: {e}"))
+    std::fs::write(&p, bytes).map_err(|e| format!("{}: {e}", tr(en, "Schreiben fehlgeschlagen", "Writing failed")))
 }
 
 // --- misc -------------------------------------------------------------------
@@ -562,6 +639,7 @@ pub fn data_path(st: State<'_, Shared>) -> String {
 #[tauri::command]
 pub async fn check_update(app: AppHandle) -> Result<Option<UpdateInfoDto>, String> {
     use tauri_plugin_updater::UpdaterExt;
+    let en = app.state::<Shared>().settings.lock().unwrap_or_else(|e| e.into_inner()).language != "de";
     let updater = app.updater().map_err(|e| e.to_string())?;
     match updater.check().await {
         Ok(Some(update)) => Ok(Some(UpdateInfoDto {
@@ -570,22 +648,60 @@ pub async fn check_update(app: AppHandle) -> Result<Option<UpdateInfoDto>, Strin
             date: update.date.map(|d| d.to_string()),
         })),
         Ok(None) => Ok(None),
-        Err(e) => Err(format!("Update-Prüfung fehlgeschlagen: {e}")),
+        Err(e) => Err(format!("{}: {e}", tr(en, "Update-Prüfung fehlgeschlagen", "Update check failed"))),
     }
 }
 
 #[tauri::command]
 pub async fn install_update(app: AppHandle) -> Result<(), String> {
     use tauri_plugin_updater::UpdaterExt;
+    let en = app.state::<Shared>().settings.lock().unwrap_or_else(|e| e.into_inner()).language != "de";
     let updater = app.updater().map_err(|e| e.to_string())?;
     let update = updater
         .check()
         .await
-        .map_err(|e| format!("Update-Prüfung fehlgeschlagen: {e}"))?
-        .ok_or("Kein Update verfügbar")?;
+        .map_err(|e| format!("{}: {e}", tr(en, "Update-Prüfung fehlgeschlagen", "Update check failed")))?
+        .ok_or_else(|| tr(en, "Kein Update verfügbar", "No update available"))?;
     update
         .download_and_install(|_, _| {}, || {})
         .await
-        .map_err(|e| format!("Update fehlgeschlagen: {e}"))?;
+        .map_err(|e| format!("{}: {e}", tr(en, "Update fehlgeschlagen", "Update failed")))?;
     app.restart();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn translations_follow_language() {
+        assert_eq!(tr(false, "Hallo", "Hello"), "Hallo");
+        assert_eq!(tr(true, "Hallo", "Hello"), "Hello");
+    }
+
+    #[test]
+    fn checked_path_rules() {
+        let dir = std::env::temp_dir();
+        let ok = dir.join("timelog_test_export.CSV");
+        assert!(checked_path(ok.to_str().unwrap(), &["csv", "json"], false).is_ok());
+        let bad = dir.join("evil.sh");
+        assert!(checked_path(bad.to_str().unwrap(), &["csv", "json"], true).is_err());
+        let none = dir.join("no_extension");
+        assert!(checked_path(none.to_str().unwrap(), &["pdf"], true).is_err());
+        assert!(checked_path("relative/report.pdf", &["pdf"], true).is_err());
+        assert!(checked_path("", &["pdf"], true).is_err());
+        // Ordner mit passender „Endung“
+        let d = dir.join("timelog_test_dir.json");
+        std::fs::create_dir_all(&d).unwrap();
+        assert!(checked_path(d.to_str().unwrap(), &["json"], true).is_err());
+        std::fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn checked_path_windows_drive_letters() {
+        assert!(checked_path(r"C:\Users\a\Desktop\timelog_bericht.pdf", &["pdf"], false).is_ok());
+        assert!(checked_path(r"\\server\share\paket.json", &["json"], false).is_ok());
+        assert!(checked_path(r"Desktop\bericht.pdf", &["pdf"], false).is_err());
+    }
 }
