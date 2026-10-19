@@ -34,6 +34,9 @@ impl Package {
 
     /// Wie `parse`, Fehlermeldung auf Deutsch (`en == false`) oder Englisch.
     pub fn parse_localized(json: &str, en: bool) -> Result<Package, String> {
+        // Unter Windows gespeicherte Dateien (Editor/Notepad) beginnen oft mit
+        // einem UTF-8-BOM — serde_json lehnt den sonst als ungültig ab.
+        let json = json.strip_prefix('\u{feff}').unwrap_or(json);
         let p: Package = serde_json::from_str(json).map_err(|e| {
             if en {
                 format!("Invalid JSON: {e}")
@@ -183,6 +186,8 @@ mod tests {
         let p = Package::new(d.clone(), "2026-09-07T12:00:00Z".into());
         let json = serde_json::to_string(&p).unwrap();
         let back = Package::parse(&json).unwrap();
+        // Mit UTF-8-BOM (Windows-Editor) ebenso lesbar
+        assert!(Package::parse(&format!("\u{feff}{json}")).is_ok());
         assert_eq!(back.data, d);
         assert!(Package::parse("{\"format\":\"other\",\"version\":1,\"exportedAt\":\"\",\"data\":{}}").is_err());
         assert!(Package::parse("nicht json").is_err());

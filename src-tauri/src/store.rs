@@ -26,12 +26,28 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
         f.sync_all().map_err(|e| e.to_string())?;
     }
     // std::fs::rename ersetzt das Ziel auch unter Windows (MoveFileExW mit
-    // MOVEFILE_REPLACE_EXISTING).
-    std::fs::rename(&tmp, path).map_err(|e| {
-        let _ = std::fs::remove_file(&tmp);
-        e.to_string()
-    })
+    // MOVEFILE_REPLACE_EXISTING). Dort hält der Virenscanner (oder ein
+    // Sync-Client) die frisch geschriebene Datei oft für einige Millisekunden
+    // offen — das Umbenennen scheitert dann mit „Zugriff verweigert“. Daher
+    // kurz wiederholen, bevor der Fehler gemeldet wird.
+    let mut last = None;
+    for attempt in 0..RENAME_ATTEMPTS {
+        match std::fs::rename(&tmp, path) {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                last = Some(e);
+                if attempt + 1 < RENAME_ATTEMPTS {
+                    std::thread::sleep(std::time::Duration::from_millis(40 * (attempt as u64 + 1)));
+                }
+            }
+        }
+    }
+    let _ = std::fs::remove_file(&tmp);
+    Err(last.map(|e| e.to_string()).unwrap_or_default())
 }
+
+/// Versuche für das Umbenennen (insgesamt höchstens ~0,4 s Wartezeit).
+const RENAME_ATTEMPTS: u32 = if cfg!(windows) { 5 } else { 1 };
 
 /// Unlesbare Datei beiseitelegen (`<name>.corrupt-<YYYYmmdd-HHMMSS>`).
 pub fn backup_corrupt(path: &Path) -> Option<PathBuf> {

@@ -470,7 +470,7 @@ interface Package {
 function parsePackage(json: string): Package {
   let p: Package;
   try {
-    p = JSON.parse(json) as Package;
+    p = JSON.parse(json.replace(/^\uFEFF/, '')) as Package;
   } catch (e) {
     throw msg(`JSON ungültig: ${e}`, `Invalid JSON: ${e}`);
   }
@@ -663,9 +663,10 @@ const handlers: Record<string, (a: Args) => unknown> = {
       const personId = input.personId && person(d, input.personId) ? input.personId : d.mePersonId;
       const t = input.taskId ? task(d, input.taskId) : undefined;
       const tk = t && t.projectId === p.id ? t : undefined;
+      // Nur ein laufender Timer je Person (wie im Rust-Backend)
       const now = nowIso();
       for (const e of d.entries) {
-        if (!e.end) {
+        if (!e.end && e.personId === personId) {
           e.end = now;
           e.updatedAt = now;
         }
@@ -692,13 +693,13 @@ const handlers: Record<string, (a: Args) => unknown> = {
     mutate((d) => {
       const now = nowIso();
       for (const e of d.entries) {
-        if (!e.end) {
+        if (!e.end && e.personId === d.mePersonId) {
           e.end = now;
           e.updatedAt = now;
         }
       }
     }),
-  running: () => data.entries.find((e) => !e.end) ?? null,
+  running: () => data.entries.find((e) => !e.end && e.personId === data.mePersonId) ?? null,
 
   // reports
   summary: (a) => {

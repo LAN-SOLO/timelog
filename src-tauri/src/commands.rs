@@ -379,8 +379,10 @@ pub fn start_timer(st: State<'_, Shared>, input: TimerStart) -> Result<Data, Str
             .and_then(|t| d.task(t))
             .filter(|t| t.project_id == project.id)
             .cloned();
+        // Nur ein laufender Timer je Person — laufende Einträge anderer
+        // Personen (z. B. aus einem importierten Team-Paket) bleiben unberührt.
         let now = now_iso();
-        for e in d.entries.iter_mut().filter(|e| e.end.is_none()) {
+        for e in d.entries.iter_mut().filter(|e| e.end.is_none() && e.person_id == person_id) {
             e.end = Some(now.clone());
             e.updated_at = now.clone();
         }
@@ -405,11 +407,13 @@ pub fn start_timer(st: State<'_, Shared>, input: TimerStart) -> Result<Data, Str
     })
 }
 
+/// Stoppt den Timer der eigenen Person (die Kopfzeile zeigt nur diesen).
 #[tauri::command]
 pub fn stop_timer(st: State<'_, Shared>) -> Result<Data, String> {
     mutate(&st, |d| {
         let now = now_iso();
-        for e in d.entries.iter_mut().filter(|e| e.end.is_none()) {
+        let me = d.me_person_id.clone();
+        for e in d.entries.iter_mut().filter(|e| e.end.is_none() && e.person_id == me) {
             e.end = Some(now.clone());
             e.updated_at = now.clone();
         }
@@ -419,7 +423,8 @@ pub fn stop_timer(st: State<'_, Shared>) -> Result<Data, String> {
 
 #[tauri::command]
 pub fn running(st: State<'_, Shared>) -> Option<Entry> {
-    st.data.lock().unwrap_or_else(|e| e.into_inner()).entries.iter().find(|e| e.end.is_none()).cloned()
+    let data = lock(&st.data);
+    data.entries.iter().find(|e| e.end.is_none() && e.person_id == data.me_person_id).cloned()
 }
 
 // --- reports ----------------------------------------------------------------

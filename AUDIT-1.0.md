@@ -118,7 +118,8 @@ Geprüft und in Ordnung:
 - Kein `cfg(target_os)`-Code; Pfade nur über `PathBuf` und Tauri-`app_data_dir`/`app_config_dir`
   (Windows: `%APPDATA%\com.lan-solo.timelog`, macOS: `~/Library/Application Support/com.lan-solo.timelog`).
 - Atomares Ersetzen: `std::fs::rename` ersetzt unter Windows das Ziel (`MOVEFILE_REPLACE_EXISTING`);
-  schlägt es fehl (Datei gesperrt), bleibt der Bestand im Speicher unverändert und die Meldung
+  unter Windows wird das Umbenennen bis zu fünfmal wiederholt (Virenscanner/Sync-Clients halten
+  frische Dateien kurz offen). Schlägt es endgültig fehl (Datei gesperrt), bleibt der Bestand im Speicher unverändert und die Meldung
   „Speichern fehlgeschlagen“ erscheint.
 - Dateiendungen werden ohne Groß-/Kleinschreibung geprüft (`.CSV` unter Windows).
 - `windows_subsystem = "windows"` in Release-Builds (kein Konsolenfenster).
@@ -175,3 +176,57 @@ Jeweils mit dem CI-Build 1.0.0, beide Sprachen (Einstellungen → Allgemein), he
 - [ ] Hilfe: Tutorial, Suche, DE/EN-Umschalter
 - [ ] Fenster auf Mindestgröße 900×600 verkleinern — nichts überlappt
 - [ ] Windows: hohe DPI (150 %), Dunkel/Hell, Icons ohne weiße Ecken
+
+## 8. Verifikation (unabhängige Zweitprüfung)
+
+Zweiter, skeptischer Durchgang über den Diff `7460951..HEAD` mit eigenen Testläufen.
+
+**Testläufe (selbst ausgeführt)**
+- `cargo test --workspace`: 27 bestanden, 0 fehlgeschlagen (core 21, App 6); der
+  `cfg(windows)`-Test läuft nur in der Windows-CI.
+- `pnpm build` (tsc + vite): fehlerfrei. `cargo clippy --workspace`: nur Stilhinweise
+  (abgeleitete `Default`-impls, zu viele Argumente, gleiche `if`-Zweige), keine Fehler.
+- Web-E2E `node scripts/e2e/web-e2e.mjs` (headless Chrome via CDP gegen `pnpm dev`):
+  60 bestanden, 0 fehlgeschlagen, keine Konsolenfehler — inkl. des neuen Tests „Timer je Person“.
+- `pnpm install --frozen-lockfile` und `cargo metadata --locked`: Lockfiles konsistent (CI-tauglich).
+- `cargo audit`: unverändert 3 × zip (transitiv über den Updater) plus Unmaintained/Unsound-Warnungen.
+  `pnpm audit`: 29 Befunde, alle jspdf (2 kritisch, 8 hoch). Geprüft: `src/pdf.ts` nutzt nur
+  `text`/`line`/`autoTable`/`output('arraybuffer')` — kein `addImage`, `html`, `addJS`, AcroForm
+  oder Ausgabe in neuem Fenster. Bewertung aus Abschnitt 4 bestätigt; Upgrade bleibt für 1.1.
+- Version 1.0.0 geprüft in `package.json`, `tauri.conf.json`, `src-tauri/Cargo.toml`,
+  `core/Cargo.toml`, `Cargo.lock` (beide Pakete), `APP_VERSION` und README. Tauri 2.11.5 (Rust)
+  passt zu `@tauri-apps/api` 2.11.1, Dialog-Plugin 2.7.3 auf beiden Seiten.
+
+**Bestätigt**
+- IPC-Vertrag: 30 Kommandos identisch in `src/api.ts` und `generate_handler!`.
+- Dateikommandos: nur absolute Pfade mit erlaubter Endung; Windows-Speichern-Dialog setzt über
+  `SetDefaultExtension` (rfd 0.16) die Endung selbst, macOS erzwingt sie über `allowedFileTypes`.
+- Esc-Verwerfen, Dezimalfelder, Dashboard-Balken, Wochensperre je Person: per E2E nachvollzogen.
+
+**Zusätzlich gefunden und behoben**
+- *Fremde laufende Timer wurden gestoppt bzw. in der Kopfzeile angezeigt.* Ein Team-Paket, das
+  eine Kollegin mit laufender Stoppuhr exportiert, brachte einen Eintrag ohne Ende mit. Die
+  Kopfzeile zeigte dann ggf. deren Timer, „Stopp“ und jeder eigene Start beendeten ihn (und
+  machten ihn durch das neue `updatedAt` beim nächsten Merge zur „jüngeren“ Version). Jetzt gilt
+  in Rust und Web-Backend: `start_timer` beendet nur laufende Einträge derselben Person,
+  `stop_timer` und `running` betreffen nur die eigene Person, die Kopfzeile zeigt nur den eigenen
+  Timer, „Erneut starten“ gibt es nur an eigenen Einträgen. E2E-Test ergänzt; Hilfe DE/EN ergänzt.
+- *CSV-Umlaute in Excel unter Windows.* Die CSV war UTF-8 ohne BOM — Excel öffnet das per
+  Doppelklick als ANSI („TÃ¤tigkeit“). Das Frontend setzt beim Speichern jetzt einen BOM davor
+  (App und Web). Hilfe DE/EN ergänzt.
+- *Team-Paket/Sicherung mit BOM wurde abgelehnt.* Unter Windows im Editor gespeicherte JSON-Dateien
+  beginnen oft mit einem UTF-8-BOM; `serde_json` meldete „JSON ungültig“. `Package::parse` und das
+  Web-Backend entfernen den BOM jetzt (Test ergänzt).
+- *Windows: Speichern scheiterte sporadisch am Virenscanner.* `write_atomic` wiederholt das
+  Umbenennen unter Windows bis zu fünfmal (max. ~0,4 s), bevor der Fehler gemeldet wird.
+
+**Weiter offen / nur statisch geprüft**
+- Laufende Einträge anderer Personen aus einem Team-Paket zählen in Berichten weiter bis „jetzt“,
+  bis ein neueres Paket das Ende liefert (bekannte Grenze, keine Datenänderung).
+- Der Merge vergleicht Ids linear (O(n²)); bei ~10 000 Einträgen unkritisch, bei sehr großen
+  Paketen kann der Import einige Sekunden dauern.
+- Native Dialoge, Updater, Leerlauf/Feierabend und das Windows-Umbenennen unter Sperre sind
+  weiterhin nur über die Checkliste in Abschnitt 7 prüfbar. Zusätzlich dort prüfen: CSV per
+  Doppelklick in Excel (Windows) zeigt Umlaute korrekt; Team-Paket mit laufendem Timer einer
+  anderen Person importieren → Kopfzeile bleibt beim eigenen Timer.
+

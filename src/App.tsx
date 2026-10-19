@@ -76,7 +76,9 @@ export default function App() {
   const lang: Lang = settings?.language ?? 'de';
   const t = dicts[lang];
   const expert = settings?.mode === 'expert';
-  const running: Entry | undefined = data.entries.find((e) => !e.end);
+  // Kopfzeile, Leerlauf und Feierabend gelten dem eigenen Timer — laufende
+  // Einträge anderer Personen (Team-Import) zählen hier nicht.
+  const running: Entry | undefined = data.entries.find((e) => !e.end && e.personId === data.mePersonId);
 
   const showToast = useCallback((msg: string, isError = false) => {
     setToast(msg);

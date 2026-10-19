@@ -1,6 +1,7 @@
 //! CSV-Erzeugung mit korrektem Quoting (RFC 4180): Felder mit Trennzeichen,
 //! Anführungszeichen oder Zeilenumbrüchen werden in Anführungszeichen gesetzt,
-//! Anführungszeichen verdoppelt. Zeilenende CRLF, UTF-8 ohne BOM.
+//! Anführungszeichen verdoppelt. Zeilenende CRLF, UTF-8 ohne BOM — den BOM
+//! (für Excel unter Windows) setzt das Frontend beim Speichern davor.
 
 use chrono::{DateTime, Local, Utc};
 

@@ -276,6 +276,20 @@ const imp = await W(`return await call('import_package',{json:${JSON.stringify(p
 ok(imp.report.added === 0 && imp.report.updated === 0, 'Re-Import idempotent', JSON.stringify(imp.report));
 const bad = await W(`try { await call('import_package',{json:'{"format":"x"}'}); return 'ok'; } catch(e) { return String(e); }`);
 ok(/Kein timelog-Paket/.test(bad), 'Fremdes JSON abgelehnt');
+// Laufender Eintrag einer Kollegin aus einem Team-Paket: eigener Start/Stopp lässt ihn in Ruhe
+const tm = await W(`const d=await call('get_data'); const now=new Date().toISOString();
+  const pk={format:'timelog-package',version:1,exportedAt:now,data:{...d, mePersonId:'tm-1', locks:[],
+    persons:[{id:'tm-1',name:'Kollegin',email:'',weeklyHours:0,hourlyRate:0,color:'#888',archived:false,updatedAt:now}],
+    entries:[{id:'tm-run',personId:'tm-1',projectId:d.projects[0].id,taskId:null,start:now,end:null,note:'läuft',billable:true,tags:[],locked:false,updatedAt:now}]}};
+  await call('import_package',{json:JSON.stringify(pk)});
+  await call('start_timer',{input:{projectId:d.projects[0].id,taskId:null,note:'',personId:null}});
+  const r1=await call('running'); const a=await call('get_data');
+  await call('stop_timer'); const b=await call('get_data');
+  const other=(x)=>x.entries.find(e=>e.id==='tm-run');
+  const res={own:r1&&r1.personId===a.mePersonId, otherRunAfterStart:!other(a).end, otherRunAfterStop:!other(b).end, ownStopped:!b.entries.some(e=>!e.end&&e.personId===b.mePersonId)};
+  await call('save_entry',{entry:{...other(b), end:new Date().toISOString()}});
+  return res;`);
+ok(tm.own && tm.otherRunAfterStart && tm.otherRunAfterStop && tm.ownStopped, 'Timer je Person: Team-Import bleibt unberührt', JSON.stringify(tm));
 const wt = await W(`return await call('weekly_totals',{weeks:8,filter:{}});`);
 ok(wt.length === 8, 'Wochen-Trend 8 Wochen');
 const bu = await W(`return await call('budget_usages');`);

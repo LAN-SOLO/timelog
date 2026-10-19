@@ -151,7 +151,7 @@ export function EntryList({
 
   const restart = (e: Entry) =>
     api
-      .startTimer({ projectId: e.projectId, taskId: e.taskId, note: e.note, personId: e.personId })
+      .startTimer({ projectId: e.projectId, taskId: e.taskId, note: e.note, personId: null })
       .then(onData)
       .catch(onFail);
 
@@ -232,7 +232,7 @@ export function EntryList({
                   showPerson={expert && !personFilter}
                   onSave={save}
                   onDuplicate={() => duplicate(e)}
-                  onRestart={() => restart(e)}
+                  onRestart={e.personId === data.mePersonId ? () => restart(e) : undefined}
                   onDelete={() => remove(e)}
                   onFail={onFail}
                 />
@@ -301,7 +301,8 @@ function EntryRow({
   showPerson: boolean;
   onSave: (e: Entry) => Promise<boolean>;
   onDuplicate: () => void;
-  onRestart: () => void;
+  /** Nur für eigene Einträge — die Stoppuhr läuft immer für die eigene Person. */
+  onRestart?: () => void;
   onDelete: () => void;
   onFail: (e: unknown) => void;
 }) {
@@ -479,7 +480,7 @@ function EntryRow({
             <button title={t.duplicate} onClick={onDuplicate}>
               <IconCopy size={12} />
             </button>
-            {!running && (
+            {!running && onRestart && (
               <button title={t.restart} onClick={onRestart}>
                 <IconRefresh size={12} />
               </button>

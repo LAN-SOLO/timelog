@@ -62,7 +62,9 @@ export function Reports({
 
   const exportCsv = async (kind: 'entries' | 'summary') => {
     try {
-      const csv = await api.exportCsv(from, to, kind, gb, filter);
+      // Mit BOM: Excel unter Windows liest UTF-8 sonst als ANSI (aus „Tätigkeit“
+      // wird „TÃ¤tigkeit“); LibreOffice und Numbers erkennen den BOM ebenfalls.
+      const csv = '\uFEFF' + (await api.exportCsv(from, to, kind, gb, filter));
       if (await saveTextFile(`timelog_${kind}_${stamp}.csv`, csv, { name: 'CSV', extensions: ['csv'] }, 'text/csv'))
         onToast(t.csvSaved);
     } catch (e) {
