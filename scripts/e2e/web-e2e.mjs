@@ -311,6 +311,29 @@ const pdfInfo = await c.ev(`(async()=>{const w=await import('/src/webapi.ts'); c
  return {len:r.bytes.length, head:String.fromCharCode(...r.bytes.slice(0,5)), name:r.suggestedName};})()`);
 ok(pdfInfo.head === '%PDF-' && pdfInfo.len > 2000 && /^timelog_zeitbericht_\d{4}-\d{2}-\d{2}\.pdf$/.test(pdfInfo.name), 'PDF-Bericht erzeugt', JSON.stringify(pdfInfo));
 
+// --- Runde 2: KW bei Wochenbeginn Sonntag, Merge nach Zeitpunkt, transaktionales Speichern ---
+const wn = await c.ev(`(async()=>{const u=await import('/src/util.ts'); return [u.weekNumber(new Date(2026,9,18)), u.weekNumber(new Date(2026,9,19)), u.weekNumber(new Date(2026,11,27)), u.weekNumber(new Date(2026,11,28)), u.weekNumber(new Date(2027,0,3))].join(',')})()`);
+ok(wn === '43,43,53,53,1', 'KW: Sonntags-Woche bekommt die ISO-Woche ihres Montags', wn);
+const mg = await W(`const d=await call('get_data'); const e=d.entries.find(x=>x.end);
+  const pk=(en)=>JSON.stringify({format:'timelog-package',version:1,exportedAt:'',data:{mePersonId:'x',persons:[],clients:[],projects:[],tasks:[],locks:[],entries:[en]}});
+  await call('import_package',{json:pk({...e, note:'neu 09:00Z', updatedAt:'2030-01-01T09:00:00Z'})});
+  const r=await call('import_package',{json:pk({...e, note:'fremd-alt', updatedAt:'2030-01-01T10:00:00+02:00'})});
+  return {note:r.data.entries.find(x=>x.id===e.id).note, updated:r.report.updated};`);
+ok(mg.updated === 0 && mg.note !== 'fremd-alt', 'Merge vergleicht Zeitpunkte (10:00+02:00 ist älter als 09:00Z)', JSON.stringify(mg));
+const tx = await W(`const before=JSON.stringify(await call('get_data')); const orig=Storage.prototype.setItem;
+  Storage.prototype.setItem=function(k,v){ if(k==='timelog.data') throw new DOMException('quota','QuotaExceededError'); return orig.call(this,k,v); };
+  let err=''; try { await call('save_client',{client:{id:'',name:'Voll',archived:false,updatedAt:''}}); } catch(e) { err=String(e); }
+  Storage.prototype.setItem=orig;
+  const after=JSON.stringify(await call('get_data'));
+  return {err, same: before===after};`);
+ok(/Speichern fehlgeschlagen/.test(tx.err) && tx.same, 'Web: Speicher voll → Fehler, Bestand unverändert', JSON.stringify(tx).slice(0, 120));
+
+const dec = await c.ev(`(async()=>{const {decodeText}=await import('/src/files.ts'); const w=await import('/src/webapi.ts');
+  const j=await w.call('export_package',{personId:null}); const u16=[0xFF,0xFE]; for (let i=0;i<j.length;i++){const k=j.charCodeAt(i); u16.push(k&255,k>>8);}
+  const s16=decodeText(new Uint8Array(u16)); const s8=decodeText(new Uint8Array([0xEF,0xBB,0xBF,...new TextEncoder().encode(j)]));
+  const r=await w.call('import_package',{json:s16}); const r2=await w.call('import_package',{json:s8});
+  return {same:s16===j, bom:s8.charCodeAt(0)===0xFEFF, ok:r.report.added===0 && r2.report.added===0};})()`);
+ok(dec.same && dec.bom && dec.ok, 'Web-Import: UTF-16 (Windows-Editor „Unicode“) und UTF-8-BOM lesbar', JSON.stringify(dec));
 // --- Defekter localStorage-Bestand wird gesichert ---
 await c.ev(`localStorage.setItem('timelog.data','{kaputt'); true`);
 await c.nav(U);

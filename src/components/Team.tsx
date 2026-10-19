@@ -4,7 +4,7 @@ import { openTextFile, saveTextFile } from '../files';
 import { Dict } from '../i18n';
 import { NumField } from './NumField';
 import { IconArchive, IconChevronLeft, IconChevronRight, IconDownload, IconEdit, IconLock, IconPlus, IconTrash, IconUnlock, IconUpload } from '../icons';
-import { PALETTE, addDays, dateKey, fmtDate, fmtRange, isoWeek, nextColor, parseDateKey, startOfDay, weekStartOf } from '../util';
+import { PALETTE, addDays, dateKey, fmtDate, fmtRange, weekNumber, nextColor, parseDateKey, startOfDay, weekStartOf } from '../util';
 
 export function Team({
   data,
@@ -30,6 +30,7 @@ export function Team({
   const [taskEdit, setTaskEdit] = useState<Task | null>(null);
   const [lockPerson, setLockPerson] = useState(data.mePersonId);
   const [lockAnchor, setLockAnchor] = useState(() => startOfDay(new Date()));
+  const [importing, setImporting] = useState(false);
 
   const run = (p: Promise<Data>) => p.then(onData).catch(onFail);
 
@@ -110,6 +111,8 @@ export function Team({
     }
   };
   const importPackage = async () => {
+    if (importing) return; // Doppelklick: nicht zweimal parallel zusammenführen
+    setImporting(true);
     try {
       const json = await openTextFile({ name: 'JSON', extensions: ['json'] });
       if (json === null) return;
@@ -118,6 +121,8 @@ export function Team({
       onToast(t.importResult(res.report));
     } catch (e) {
       onFail(e);
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -218,7 +223,7 @@ export function Team({
                   <span className="grow1">
                     {c.name}
                     <div className="dim">
-                      {data.projects.filter((p) => p.clientId === c.id).length} {t.projects.toLowerCase()}
+                      {t.projectCount(data.projects.filter((p) => p.clientId === c.id).length)}
                     </div>
                   </span>
                   <button className="icon" title={t.edit} onClick={() => setClientEdit({ ...c })}>
@@ -336,8 +341,8 @@ export function Team({
             <div className="note" style={{ marginTop: 0 }}>
               {t.weekCloseHint}
             </div>
-            <div className="row2" style={{ alignItems: 'center', marginBottom: 10 }}>
-              <select value={lockPerson} onChange={(e) => setLockPerson(e.target.value)} style={{ width: 'auto' }}>
+            <div className="row2" style={{ alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
+              <select value={lockPerson} onChange={(e) => setLockPerson(e.target.value)} style={{ width: 'auto', minWidth: 0, maxWidth: '100%' }}>
                 {data.persons
                   .filter((p) => !p.archived)
                   .map((p) => (
@@ -353,7 +358,7 @@ export function Team({
                 <IconChevronRight size={12} />
               </button>
               <span className="dim" style={{ fontSize: 12 }}>
-                {t.weekLabel(isoWeek(weekStart))} · {fmtRange({ from: weekStart, to: addDays(weekStart, 7) }, lang)}
+                {t.weekLabel(weekNumber(weekStart))} · {fmtRange({ from: weekStart, to: addDays(weekStart, 7) }, lang)}
               </span>
               <button className={locked ? 'active' : 'primary'} onClick={toggleLock} style={{ marginLeft: 'auto' }}>
                 {locked ? <IconUnlock size={12} /> : <IconLock size={12} />}
@@ -368,7 +373,7 @@ export function Team({
                   <IconLock size={11} />
                   <span>{data.persons.find((p) => p.id === l.personId)?.name ?? '?'}</span>
                   <span>
-                    {t.weekOf(fmtDate(parseDateKey(l.weekStart), lang))} · {t.weekLabel(isoWeek(parseDateKey(l.weekStart)))}
+                    {t.weekOf(fmtDate(parseDateKey(l.weekStart), lang))} · {t.weekLabel(weekNumber(parseDateKey(l.weekStart)))}
                   </span>
                   <button className="icon ghost" title={t.unlockWeek} onClick={() => run(api.unlockWeek(l.personId, l.weekStart))}>
                     <IconUnlock size={11} />
@@ -391,7 +396,7 @@ export function Team({
               <button onClick={() => exportPackage(false)}>
                 <IconDownload size={12} /> {t.exportAll}
               </button>
-              <button className="primary" onClick={importPackage}>
+              <button className="primary" onClick={importPackage} disabled={importing}>
                 <IconUpload size={12} /> {t.importPackage}
               </button>
             </div>

@@ -154,6 +154,8 @@ const de = {
   importResult: (r: { added: number; updated: number; unchanged: number; entriesAdded: number }) =>
     `Import: ${r.added} neu (${r.entriesAdded} Einträge), ${r.updated} aktualisiert, ${r.unchanged} unverändert.`,
   confirmDeleteGeneric: (name: string) => `„${name}“ löschen?`,
+  projectCount: (n: number) => `${n} ${n === 1 ? 'Projekt' : 'Projekte'}`,
+  entryCount: (n: number) => `${n} ${n === 1 ? 'Eintrag' : 'Einträge'}`,
   // project modal
   projectTitle: 'Projekt',
   projectName: 'Name',
@@ -387,6 +389,8 @@ const en: typeof de = {
   importResult: (r: { added: number; updated: number; unchanged: number; entriesAdded: number }) =>
     `Import: ${r.added} new (${r.entriesAdded} entries), ${r.updated} updated, ${r.unchanged} unchanged.`,
   confirmDeleteGeneric: (name: string) => `Delete “${name}”?`,
+  projectCount: (n: number) => `${n} ${n === 1 ? 'project' : 'projects'}`,
+  entryCount: (n: number) => `${n} ${n === 1 ? 'entry' : 'entries'}`,
   projectTitle: 'Project',
   projectName: 'Name',
   client: 'Client',

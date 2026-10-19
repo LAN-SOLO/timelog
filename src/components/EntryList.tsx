@@ -21,7 +21,7 @@ import {
   fmtRange,
   fmtSignedHM,
   fmtTime,
-  isoWeek,
+  weekNumber,
   overlapSecs,
   rangeDay,
   rangeWeek,
@@ -186,7 +186,7 @@ export function EntryList({
           {mode === 'today' ? t.today : t.thisWeek}
         </button>
         <span className="sub">
-          {mode === 'today' ? fmtDayLong(anchor, lang) : `${t.weekLabel(isoWeek(range.from))} · ${fmtRange(range, lang)}`}
+          {mode === 'today' ? fmtDayLong(anchor, lang) : `${t.weekLabel(weekNumber(range.from))} · ${fmtRange(range, lang)}`}
         </span>
         <span className="spacer" />
         {expert && mode === 'week' && (
@@ -259,7 +259,7 @@ export function EntryList({
               </>
             )}
             <span className="dim">
-              {entries.length} {t.entries}
+              {t.entryCount(entries.length)}
             </span>
           </div>
         )}

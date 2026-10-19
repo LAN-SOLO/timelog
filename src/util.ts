@@ -173,6 +173,16 @@ export function isoWeek(d: Date): number {
   return Math.ceil(((x.getTime() - yearStart.getTime()) / DAY + 1) / 7);
 }
 
+/**
+ * Kalenderwoche einer Woche ab `weekStart`. Beginnt die Woche am Sonntag,
+ * gehört sie zur ISO-Woche ihres Montags — sonst stünde über „So 18.10. –
+ * Sa 24.10.“ die KW 42 statt 43. Der Mittwoch/Donnerstag (Start + 3 Tage)
+ * liegt in beiden Fällen sicher in der richtigen ISO-Woche.
+ */
+export function weekNumber(weekStart: Date): number {
+  return isoWeek(addDays(weekStart, 3));
+}
+
 export function isSameDay(a: Date, b: Date): boolean {
   return dateKey(a) === dateKey(b);
 }

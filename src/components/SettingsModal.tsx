@@ -34,6 +34,8 @@ export function SettingsModal({
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
   const [installing, setInstalling] = useState(false);
   const [dataPath, setDataPath] = useState('');
+  const [updError, setUpdError] = useState('');
+  const [importing, setImporting] = useState(false);
 
   useEffect(() => {
     api.dataPath().then(setDataPath).catch(() => {});
@@ -59,7 +61,11 @@ export function SettingsModal({
           setUpdState('idle');
         } else setUpdState('none');
       })
-      .catch(() => setUpdState('error'));
+      .catch((e) => {
+        // Meldung kommt vom Backend schon in der eingestellten Sprache.
+        setUpdError(String(e));
+        setUpdState('error');
+      });
   };
 
   // Web-Version: Sicherung der Browser-Daten als Paket (gleiches Format wie „Team“).
@@ -73,6 +79,8 @@ export function SettingsModal({
     }
   };
   const importData = async () => {
+    if (importing) return; // Doppelklick: nicht zweimal parallel zusammenführen
+    setImporting(true);
     try {
       const json = await openTextFile({ name: 'JSON', extensions: ['json'] });
       if (json === null) return;
@@ -81,6 +89,8 @@ export function SettingsModal({
       onToast(t.importResult(res.report));
     } catch (e) {
       onFail(e);
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -232,7 +242,11 @@ export function SettingsModal({
                     {updState === 'checking' ? t.checking : t.checkUpdates}
                   </button>
                   {updState === 'none' && <span>{t.upToDate}</span>}
-                  {updState === 'error' && <span style={{ color: 'var(--red)' }}>{t.updateError}</span>}
+                  {updState === 'error' && (
+                    <span style={{ color: 'var(--red)' }} title={updError}>
+                      {t.updateError}
+                    </span>
+                  )}
                   {update && (
                     <>
                       <span>
@@ -265,7 +279,9 @@ export function SettingsModal({
             {!isTauri && (
               <div className="btnrow" style={{ justifyContent: 'flex-start', marginTop: 8 }}>
                 <button onClick={exportData}>{t.exportData}</button>
-                <button onClick={importData}>{t.importData}</button>
+                <button onClick={importData} disabled={importing}>
+                  {t.importData}
+                </button>
               </div>
             )}
             {expert && (

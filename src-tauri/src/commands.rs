@@ -3,7 +3,7 @@
 
 use crate::settings::{self, Settings};
 use crate::state::AppState;
-use crate::store;
+use crate::store::{self, io_hint};
 use base64::Engine;
 use chrono::{Local, Utc};
 use serde::{Deserialize, Serialize};
@@ -82,7 +82,7 @@ fn mutate(st: &Shared, f: impl FnOnce(&mut Data) -> Result<(), String>) -> Resul
     let mut data = lock(&st.data);
     let mut next = data.clone();
     f(&mut next)?;
-    store::save(&st.data_dir, &next).map_err(|e| format!("{}: {e}", tr(en, "Speichern fehlgeschlagen", "Saving failed")))?;
+    store::save(&st.data_dir, &next).map_err(|e| format!("{}: {}", tr(en, "Speichern fehlgeschlagen", "Saving failed"), io_hint(&e, en)))?;
     *data = next;
     Ok(data.clone())
 }
@@ -113,26 +113,32 @@ fn entry_locked(data: &Data, e: &Entry, ws: WeekStart) -> bool {
 // --- settings ---------------------------------------------------------------
 
 #[tauri::command]
-pub fn get_settings(st: State<'_, Shared>) -> Settings {
-    st.settings.lock().unwrap_or_else(|e| e.into_inner()).clone()
+pub async fn get_settings(st: State<'_, Shared>) -> Result<Settings, String> {
+    Ok(lock(&st.settings).clone())
 }
 
 #[tauri::command]
-pub fn set_settings(app: AppHandle, st: State<'_, Shared>, settings: Settings) {
+pub async fn set_settings(app: AppHandle, st: State<'_, Shared>, settings: Settings) -> Result<(), String> {
     let settings = settings.sanitized();
-    settings::store(&app, &settings);
-    *st.settings.lock().unwrap_or_else(|e| e.into_inner()) = settings;
+    // Sperre über das Schreiben halten: zwei gleichzeitige Aufrufe würden
+    // sonst dieselbe settings.json.tmp beschreiben. Ein Schreibfehler wird
+    // gemeldet (Sprache der NEUEN Einstellung), der alte Stand bleibt aktiv.
+    let mut cur = lock(&st.settings);
+    let en = settings.language != "de";
+    settings::store(&app, &settings).map_err(|e| format!("{}: {}", tr(en, "Einstellungen nicht gespeichert", "Settings not saved"), io_hint(&e, en)))?;
+    *cur = settings;
+    Ok(())
 }
 
 // --- data -------------------------------------------------------------------
 
 #[tauri::command]
-pub fn get_data(st: State<'_, Shared>) -> Data {
-    st.data.lock().unwrap_or_else(|e| e.into_inner()).clone()
+pub async fn get_data(st: State<'_, Shared>) -> Result<Data, String> {
+    Ok(lock(&st.data).clone())
 }
 
 #[tauri::command]
-pub fn save_person(st: State<'_, Shared>, mut person: Person) -> Result<Data, String> {
+pub async fn save_person(st: State<'_, Shared>, mut person: Person) -> Result<Data, String> {
     let en = is_en(&st);
     if person.name.trim().is_empty() {
         return Err(tr(en, "Bitte einen Namen angeben.", "Please enter a name."));
@@ -152,7 +158,7 @@ pub fn save_person(st: State<'_, Shared>, mut person: Person) -> Result<Data, St
 }
 
 #[tauri::command]
-pub fn delete_person(st: State<'_, Shared>, id: String) -> Result<Data, String> {
+pub async fn delete_person(st: State<'_, Shared>, id: String) -> Result<Data, String> {
     let en = is_en(&st);
     mutate(&st, |d| {
         if d.me_person_id == id {
@@ -168,7 +174,7 @@ pub fn delete_person(st: State<'_, Shared>, id: String) -> Result<Data, String> 
 }
 
 #[tauri::command]
-pub fn save_client(st: State<'_, Shared>, mut client: Client) -> Result<Data, String> {
+pub async fn save_client(st: State<'_, Shared>, mut client: Client) -> Result<Data, String> {
     let en = is_en(&st);
     if client.name.trim().is_empty() {
         return Err(tr(en, "Bitte einen Namen angeben.", "Please enter a name."));
@@ -188,7 +194,7 @@ pub fn save_client(st: State<'_, Shared>, mut client: Client) -> Result<Data, St
 }
 
 #[tauri::command]
-pub fn delete_client(st: State<'_, Shared>, id: String) -> Result<Data, String> {
+pub async fn delete_client(st: State<'_, Shared>, id: String) -> Result<Data, String> {
     mutate(&st, |d| {
         d.clients.retain(|c| c.id != id);
         let now = now_iso();
@@ -201,7 +207,7 @@ pub fn delete_client(st: State<'_, Shared>, id: String) -> Result<Data, String> 
 }
 
 #[tauri::command]
-pub fn save_project(st: State<'_, Shared>, mut project: Project) -> Result<Data, String> {
+pub async fn save_project(st: State<'_, Shared>, mut project: Project) -> Result<Data, String> {
     let en = is_en(&st);
     if project.name.trim().is_empty() {
         return Err(tr(en, "Bitte einen Projektnamen angeben.", "Please enter a project name."));
@@ -228,7 +234,7 @@ pub fn save_project(st: State<'_, Shared>, mut project: Project) -> Result<Data,
 }
 
 #[tauri::command]
-pub fn delete_project(st: State<'_, Shared>, id: String) -> Result<Data, String> {
+pub async fn delete_project(st: State<'_, Shared>, id: String) -> Result<Data, String> {
     let en = is_en(&st);
     mutate(&st, |d| {
         if d.entries.iter().any(|e| e.project_id == id) {
@@ -241,7 +247,7 @@ pub fn delete_project(st: State<'_, Shared>, id: String) -> Result<Data, String>
 }
 
 #[tauri::command]
-pub fn save_task(st: State<'_, Shared>, mut task: Task) -> Result<Data, String> {
+pub async fn save_task(st: State<'_, Shared>, mut task: Task) -> Result<Data, String> {
     let en = is_en(&st);
     if task.name.trim().is_empty() {
         return Err(tr(en, "Bitte einen Namen angeben.", "Please enter a name."));
@@ -264,7 +270,7 @@ pub fn save_task(st: State<'_, Shared>, mut task: Task) -> Result<Data, String> 
 }
 
 #[tauri::command]
-pub fn delete_task(st: State<'_, Shared>, id: String) -> Result<Data, String> {
+pub async fn delete_task(st: State<'_, Shared>, id: String) -> Result<Data, String> {
     mutate(&st, |d| {
         d.tasks.retain(|t| t.id != id);
         let now = now_iso();
@@ -279,7 +285,7 @@ pub fn delete_task(st: State<'_, Shared>, id: String) -> Result<Data, String> {
 // --- entries ----------------------------------------------------------------
 
 #[tauri::command]
-pub fn save_entry(st: State<'_, Shared>, mut entry: Entry) -> Result<Data, String> {
+pub async fn save_entry(st: State<'_, Shared>, mut entry: Entry) -> Result<Data, String> {
     let en = is_en(&st);
     let ws = week_start_setting(&st);
     mutate(&st, |d| {
@@ -345,7 +351,7 @@ pub fn save_entry(st: State<'_, Shared>, mut entry: Entry) -> Result<Data, Strin
 }
 
 #[tauri::command]
-pub fn delete_entry(st: State<'_, Shared>, id: String) -> Result<Data, String> {
+pub async fn delete_entry(st: State<'_, Shared>, id: String) -> Result<Data, String> {
     let en = is_en(&st);
     let ws = week_start_setting(&st);
     mutate(&st, |d| {
@@ -360,7 +366,7 @@ pub fn delete_entry(st: State<'_, Shared>, id: String) -> Result<Data, String> {
 }
 
 #[tauri::command]
-pub fn start_timer(st: State<'_, Shared>, input: TimerStart) -> Result<Data, String> {
+pub async fn start_timer(st: State<'_, Shared>, input: TimerStart) -> Result<Data, String> {
     let en = is_en(&st);
     let ws = week_start_setting(&st);
     mutate(&st, |d| {
@@ -409,7 +415,7 @@ pub fn start_timer(st: State<'_, Shared>, input: TimerStart) -> Result<Data, Str
 
 /// Stoppt den Timer der eigenen Person (die Kopfzeile zeigt nur diesen).
 #[tauri::command]
-pub fn stop_timer(st: State<'_, Shared>) -> Result<Data, String> {
+pub async fn stop_timer(st: State<'_, Shared>) -> Result<Data, String> {
     mutate(&st, |d| {
         let now = now_iso();
         let me = d.me_person_id.clone();
@@ -422,15 +428,15 @@ pub fn stop_timer(st: State<'_, Shared>) -> Result<Data, String> {
 }
 
 #[tauri::command]
-pub fn running(st: State<'_, Shared>) -> Option<Entry> {
+pub async fn running(st: State<'_, Shared>) -> Result<Option<Entry>, String> {
     let data = lock(&st.data);
-    data.entries.iter().find(|e| e.end.is_none() && e.person_id == data.me_person_id).cloned()
+    Ok(data.entries.iter().find(|e| e.end.is_none() && e.person_id == data.me_person_id).cloned())
 }
 
 // --- reports ----------------------------------------------------------------
 
 #[tauri::command]
-pub fn summary(
+pub async fn summary(
     st: State<'_, Shared>,
     from: String,
     to: String,
@@ -443,9 +449,9 @@ pub fn summary(
 }
 
 #[tauri::command]
-pub fn weekly_totals(st: State<'_, Shared>, weeks: u32, filter: Filter) -> Vec<WeekTotal> {
+pub async fn weekly_totals(st: State<'_, Shared>, weeks: u32, filter: Filter) -> Result<Vec<WeekTotal>, String> {
     let data = st.data.lock().unwrap_or_else(|e| e.into_inner());
-    timelog_core::weekly_totals(
+    Ok(timelog_core::weekly_totals(
         &data,
         Local::now().date_naive(),
         weeks.clamp(1, 52),
@@ -453,25 +459,25 @@ pub fn weekly_totals(st: State<'_, Shared>, weeks: u32, filter: Filter) -> Vec<W
         &filter,
         rounding(&st),
         Utc::now(),
-    )
+    ))
 }
 
 #[tauri::command]
-pub fn budget_usages(st: State<'_, Shared>) -> Vec<BudgetUsage> {
+pub async fn budget_usages(st: State<'_, Shared>) -> Result<Vec<BudgetUsage>, String> {
     let data = st.data.lock().unwrap_or_else(|e| e.into_inner());
     let r = rounding(&st);
     let now = Utc::now();
-    data.projects
+    Ok(data.projects
         .iter()
         .filter(|p| !p.archived)
         .map(|p| budget_usage(&data, p, r, now))
-        .collect()
+        .collect())
 }
 
 /// CSV erzeugen — `kind`: "entries" | "summary". Speichern übernimmt das
 /// Frontend über den Dialog + `write_text_file`.
 #[tauri::command]
-pub fn export_csv(
+pub async fn export_csv(
     st: State<'_, Shared>,
     from: String,
     to: String,
@@ -500,7 +506,7 @@ pub fn export_csv(
 
 /// Eigene (oder alle) Daten als JSON-Paket für die Zusammenführung beim PL.
 #[tauri::command]
-pub fn export_package(st: State<'_, Shared>, person_id: Option<String>) -> Result<String, String> {
+pub async fn export_package(st: State<'_, Shared>, person_id: Option<String>) -> Result<String, String> {
     let data = st.data.lock().unwrap_or_else(|e| e.into_inner());
     let mut out = data.clone();
     if let Some(p) = person_id.filter(|p| !p.is_empty()) {
@@ -509,11 +515,11 @@ pub fn export_package(st: State<'_, Shared>, person_id: Option<String>) -> Resul
         out.persons.retain(|x| x.id == p);
     }
     let pkg = Package::new(out, now_iso());
-    serde_json::to_string_pretty(&pkg).map_err(|e| e.to_string())
+    serde_json::to_string_pretty(&pkg).map_err(|e| format!("{}: {e}", tr(is_en(&st), "Export fehlgeschlagen", "Export failed")))
 }
 
 #[tauri::command]
-pub fn import_package(st: State<'_, Shared>, json: String) -> Result<ImportResult, String> {
+pub async fn import_package(st: State<'_, Shared>, json: String) -> Result<ImportResult, String> {
     let pkg = Package::parse_localized(&json, is_en(&st))?;
     let mut report = MergeReport::default();
     let data = mutate(&st, |d| {
@@ -526,7 +532,7 @@ pub fn import_package(st: State<'_, Shared>, json: String) -> Result<ImportResul
 // --- week locks -------------------------------------------------------------
 
 #[tauri::command]
-pub fn lock_week(st: State<'_, Shared>, person_id: String, week_start: String) -> Result<Data, String> {
+pub async fn lock_week(st: State<'_, Shared>, person_id: String, week_start: String) -> Result<Data, String> {
     let en = is_en(&st);
     let ws = week_start_setting(&st);
     mutate(&st, |d| {
@@ -554,7 +560,7 @@ pub fn lock_week(st: State<'_, Shared>, person_id: String, week_start: String) -
 }
 
 #[tauri::command]
-pub fn unlock_week(st: State<'_, Shared>, person_id: String, week_start: String) -> Result<Data, String> {
+pub async fn unlock_week(st: State<'_, Shared>, person_id: String, week_start: String) -> Result<Data, String> {
     let ws = week_start_setting(&st);
     mutate(&st, |d| {
         d.locks
@@ -596,17 +602,51 @@ pub fn checked_path(path: &str, allowed: &[&str], en: bool) -> Result<PathBuf, S
         let list = allowed.iter().map(|e| format!(".{e}")).collect::<Vec<_>>().join(", ");
         return Err(format!("{} {list}", tr(en, "Dateityp nicht erlaubt — erlaubt:", "File type not allowed — allowed:")));
     }
+    if cfg!(windows) {
+        let name = p.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+        if windows_name_problem(name) {
+            return Err(tr(
+                en,
+                "Dieser Dateiname ist unter Windows nicht erlaubt (reservierter Name wie CON/NUL oder Zeichen \\ / : * ? \" < > |).",
+                "This file name is not allowed on Windows (reserved name like CON/NUL or one of \\ / : * ? \" < > |).",
+            ));
+        }
+    }
     if p.is_dir() {
         return Err(tr(en, "Das Ziel ist ein Ordner.", "The target is a folder."));
     }
     Ok(p)
 }
 
+/// Ist `name` (letzte Pfadkomponente) unter Windows unzulässig? Reservierte
+/// Gerätenamen gelten auch mit Endung („NUL.csv“ schreibt sonst ins Nichts
+/// bzw. auf ein Gerät), dazu verbotene Zeichen, Steuerzeichen sowie Punkt
+/// oder Leerzeichen am Ende (Windows schneidet sie stillschweigend ab).
+pub fn windows_name_problem(name: &str) -> bool {
+    if name.is_empty() || name.ends_with('.') || name.ends_with(' ') {
+        return true;
+    }
+    if name.chars().any(|c| c < ' ' || matches!(c, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*')) {
+        return true;
+    }
+    let stem = name.split('.').next().unwrap_or_default().trim_end().to_ascii_uppercase();
+    const RESERVED: [&str; 6] = ["CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"];
+    if RESERVED.contains(&stem.as_str()) {
+        return true;
+    }
+    let numbered = |prefix: &str| {
+        stem.strip_prefix(prefix)
+            .map(|rest| matches!(rest, "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" | "\u{b9}" | "\u{b2}" | "\u{b3}"))
+            .unwrap_or(false)
+    };
+    numbered("COM") || numbered("LPT")
+}
+
 #[tauri::command]
-pub fn read_text_file(st: State<'_, Shared>, path: String) -> Result<String, String> {
+pub async fn read_text_file(st: State<'_, Shared>, path: String) -> Result<String, String> {
     let en = is_en(&st);
     let p = checked_path(&path, &["json"], en)?;
-    let fail = |e: std::io::Error| format!("{}: {e}", tr(en, "Lesen fehlgeschlagen", "Reading failed"));
+    let fail = |e: std::io::Error| format!("{}: {}", tr(en, "Lesen fehlgeschlagen", "Reading failed"), io_hint(&e, en));
     let meta = std::fs::metadata(&p).map_err(fail)?;
     if !meta.is_file() {
         return Err(tr(en, "Keine reguläre Datei.", "Not a regular file."));
@@ -614,38 +654,61 @@ pub fn read_text_file(st: State<'_, Shared>, path: String) -> Result<String, Str
     if meta.len() > MAX_READ_BYTES {
         return Err(tr(en, "Datei zu groß (max. 64 MB).", "File too large (max. 64 MB)."));
     }
-    std::fs::read_to_string(&p).map_err(fail)
+    let bytes = std::fs::read(&p).map_err(fail)?;
+    decode_text(bytes).ok_or_else(|| tr(en, "Die Datei ist kein lesbarer Text (UTF-8 oder UTF-16).", "The file is not readable text (UTF-8 or UTF-16)."))
+}
+
+/// Text aus einer Datei: UTF-8 (mit oder ohne BOM — den entfernt
+/// `Package::parse`) oder UTF-16 mit BOM, wie ihn der Windows-Editor bei
+/// „Unicode“ schreibt.
+pub fn decode_text(bytes: Vec<u8>) -> Option<String> {
+    let utf16 = |rest: &[u8], le: bool| {
+        let (pairs, odd) = rest.as_chunks::<2>();
+        if !odd.is_empty() {
+            return None;
+        }
+        let units: Vec<u16> = pairs
+            .iter()
+            .map(|&c| if le { u16::from_le_bytes(c) } else { u16::from_be_bytes(c) })
+            .collect();
+        String::from_utf16(&units).ok()
+    };
+    match bytes.as_slice() {
+        [0xFF, 0xFE, rest @ ..] => utf16(rest, true),
+        [0xFE, 0xFF, rest @ ..] => utf16(rest, false),
+        _ => String::from_utf8(bytes).ok(),
+    }
 }
 
 #[tauri::command]
-pub fn write_text_file(st: State<'_, Shared>, path: String, content: String) -> Result<(), String> {
+pub async fn write_text_file(st: State<'_, Shared>, path: String, content: String) -> Result<(), String> {
     let en = is_en(&st);
     let p = checked_path(&path, &["csv", "json"], en)?;
-    std::fs::write(&p, content.as_bytes()).map_err(|e| format!("{}: {e}", tr(en, "Schreiben fehlgeschlagen", "Writing failed")))
+    std::fs::write(&p, content.as_bytes()).map_err(|e| format!("{}: {}", tr(en, "Schreiben fehlgeschlagen", "Writing failed"), io_hint(&e, en)))
 }
 
 #[tauri::command]
-pub fn write_file(st: State<'_, Shared>, path: String, data_base64: String) -> Result<(), String> {
+pub async fn write_file(st: State<'_, Shared>, path: String, data_base64: String) -> Result<(), String> {
     let en = is_en(&st);
     let p = checked_path(&path, &["pdf"], en)?;
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(data_base64)
-        .map_err(|e| e.to_string())?;
-    std::fs::write(&p, bytes).map_err(|e| format!("{}: {e}", tr(en, "Schreiben fehlgeschlagen", "Writing failed")))
+        .map_err(|e| format!("{}: {e}", tr(en, "Ungültige Daten", "Invalid data")))?;
+    std::fs::write(&p, bytes).map_err(|e| format!("{}: {}", tr(en, "Schreiben fehlgeschlagen", "Writing failed"), io_hint(&e, en)))
 }
 
 // --- misc -------------------------------------------------------------------
 
 #[tauri::command]
-pub fn data_path(st: State<'_, Shared>) -> String {
-    st.data_dir.to_string_lossy().to_string()
+pub async fn data_path(st: State<'_, Shared>) -> Result<String, String> {
+    Ok(st.data_dir.to_string_lossy().to_string())
 }
 
 #[tauri::command]
 pub async fn check_update(app: AppHandle) -> Result<Option<UpdateInfoDto>, String> {
     use tauri_plugin_updater::UpdaterExt;
     let en = app.state::<Shared>().settings.lock().unwrap_or_else(|e| e.into_inner()).language != "de";
-    let updater = app.updater().map_err(|e| e.to_string())?;
+    let updater = app.updater().map_err(|e| format!("{}: {e}", tr(en, "Update-Prüfung fehlgeschlagen", "Update check failed")))?;
     match updater.check().await {
         Ok(Some(update)) => Ok(Some(UpdateInfoDto {
             version: update.version.clone(),
@@ -661,7 +724,7 @@ pub async fn check_update(app: AppHandle) -> Result<Option<UpdateInfoDto>, Strin
 pub async fn install_update(app: AppHandle) -> Result<(), String> {
     use tauri_plugin_updater::UpdaterExt;
     let en = app.state::<Shared>().settings.lock().unwrap_or_else(|e| e.into_inner()).language != "de";
-    let updater = app.updater().map_err(|e| e.to_string())?;
+    let updater = app.updater().map_err(|e| format!("{}: {e}", tr(en, "Update-Prüfung fehlgeschlagen", "Update check failed")))?;
     let update = updater
         .check()
         .await
@@ -700,6 +763,53 @@ mod tests {
         std::fs::create_dir_all(&d).unwrap();
         assert!(checked_path(d.to_str().unwrap(), &["json"], true).is_err());
         std::fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn windows_reserved_and_invalid_names() {
+        for bad in ["CON.csv", "nul.json", "Aux.pdf", "COM1.csv", "lpt9.pdf", "CON .csv", "a|b.csv", "a?.json", "x:y.pdf", "bericht.csv.", "bericht.csv ", "tab\tname.csv", ""] {
+            assert!(windows_name_problem(bad), "{bad:?} sollte abgelehnt werden");
+        }
+        for ok in ["timelog_entries_2026-10-19_2026-10-25.csv", "Bericht März.pdf", "console.csv", "COM10.csv", "nullable.json", "Ärger & Co.json"] {
+            assert!(!windows_name_problem(ok), "{ok:?} sollte erlaubt sein");
+        }
+    }
+
+    #[test]
+    fn decode_text_handles_bom_variants() {
+        assert_eq!(decode_text(b"{}".to_vec()).unwrap(), "{}");
+        assert_eq!(decode_text("\u{feff}{\"ä\":1}".as_bytes().to_vec()).unwrap(), "\u{feff}{\"ä\":1}");
+        let mut le = vec![0xFF, 0xFE];
+        for u in "{\"ä\":1}".encode_utf16() {
+            le.extend_from_slice(&u.to_le_bytes());
+        }
+        assert_eq!(decode_text(le).unwrap(), "{\"ä\":1}");
+        assert!(decode_text(vec![0xC3, 0x28]).is_none());
+        // UTF-16 + Paket-Parser: Windows-Editor „Unicode“
+        let json = format!("{{\"format\":\"timelog-package\",\"version\":1,\"exportedAt\":\"\",\"data\":{{}}}}");
+        let mut le = vec![0xFF, 0xFE];
+        for u in json.encode_utf16() {
+            le.extend_from_slice(&u.to_le_bytes());
+        }
+        assert!(timelog_core::Package::parse(&decode_text(le).unwrap()).is_ok());
+    }
+
+    #[test]
+    fn io_hint_is_localized() {
+        let e = std::io::Error::from(std::io::ErrorKind::PermissionDenied);
+        assert!(io_hint(&e, false).starts_with("Keine Berechtigung"));
+        assert!(io_hint(&e, true).starts_with("No permission"));
+        let other = std::io::Error::other("xyz");
+        assert_eq!(io_hint(&other, true), "xyz");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn checked_path_windows_reserved() {
+        assert!(checked_path(r"C:\Users\a\Desktop\NUL.csv", &["csv"], false).is_err());
+        assert!(checked_path(r"C:\Users\a\Desktop\Zeit März.csv", &["csv"], false).is_ok());
+        let sharing = std::io::Error::from_raw_os_error(32);
+        assert!(io_hint(&sharing, false).contains("anderen Programm"));
     }
 
     #[cfg(windows)]

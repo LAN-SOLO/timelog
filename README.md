@@ -16,6 +16,11 @@ wirklich, Dezimalwerte (37,5 h / 85,50 €) eingebbar, Dashboard-Balken sichtbar
 CSV-Schutz gegen Formel-Injektion, defekte `data.json` wird gesichert statt
 überschrieben, Datei-Kommandos auf .csv/.json/.pdf begrenzt, Backend-Meldungen
 auf DE/EN.
+Audit-Runde 2: Kommandos laufen nicht mehr auf dem Hauptthread (kein Einfrieren beim
+Speichern unter Windows), Speicherfehler der Einstellungen werden gemeldet, verständliche
+Datei-Fehler („in einem anderen Programm geöffnet“), reservierte Windows-Dateinamen
+abgelehnt, Import von UTF-16-Dateien (Windows-Editor), Merge nach echtem Zeitpunkt,
+KW-Anzeige bei Wochenbeginn Sonntag, Kopfzeile bei 900 px ohne Überlappung.
 
 ## Web-Version (Browser / Telefon)
 
@@ -43,6 +48,10 @@ pnpm build                       # tsc + Vite
 Web-UI-E2E (headless Chrome, ohne Zusatzpakete): siehe Kopf von
 `scripts/e2e/web-e2e.mjs` — `pnpm dev`, Chrome mit `--remote-debugging-port=9222`,
 dann `node scripts/e2e/web-e2e.mjs /tmp`.
+`scripts/e2e/ui-mock-ipc.mjs` fährt dieselbe Oberfläche mit gemocktem Tauri-IPC
+(Dialog-Plugin, Datei-Kommandos) in DE/EN × dunkel/hell bei 900×600 und 390 px
+(`WIDTH=761|900|1240` wählbar) und prüft Überlauf, Überlappung in der Kopfzeile und
+Texte der jeweils anderen Sprache.
 
 Der Rust-Kern (`core/`, Crate `timelog-core`) ist Tauri-frei und testbar:
 Dauer/Rundung, Wochen- und Zeitraumlogik, Aggregation je Projekt/Kunde/Person/Tätigkeit,

@@ -230,3 +230,89 @@ Zweiter, skeptischer Durchgang über den Diff `7460951..HEAD` mit eigenen Testl�
   Doppelklick in Excel (Windows) zeigt Umlaute korrekt; Team-Paket mit laufendem Timer einer
   anderen Person importieren → Kopfzeile bleibt beim eigenen Timer.
 
+
+## Runde 2
+
+Stand: 2026-10-20 · Basis: `adc6083` · Ziel unverändert 1.0.0 (keine Versionsänderung).
+Durchgang über die Fehlermuster L1–L13 aus den anderen Apps plus Reste aus Runde 1.
+
+**Testläufe (selbst ausgeführt)**
+
+| Lauf | Befehl | Ergebnis |
+|---|---|---|
+| Rust | `cargo test --workspace` | 31 bestanden (Kern 22, App 9), 0 fehlgeschlagen; unter Windows zusätzlich 2 `cfg(windows)`-Tests |
+| Windows-Typecheck | `cargo check --target x86_64-pc-windows-msvc --workspace --tests` (vom Mac, ohne Linken) | fehlerfrei, keine Warnungen — inkl. der `cfg(windows)`-Tests |
+| Clippy | `cargo clippy --workspace` | nur die bekannten Stilhinweise aus Runde 1 |
+| Frontend | `pnpm build` (tsc + Vite) | fehlerfrei |
+| Web-E2E | `node scripts/e2e/web-e2e.mjs` | 64 bestanden, 0 fehlgeschlagen |
+| UI mit Tauri-Mock | `node scripts/e2e/ui-mock-ipc.mjs` (neu) bei 900×600 sowie `WIDTH=761` und `1240` | je 157 bestanden, 0 fehlgeschlagen: DE/EN × dunkel/hell, alle fünf Ansichten, Einstellungen (4 Reiter), Projekt-Dialog, Lösch-Nachfrage, Hilfe, Telefon 390 px |
+| Abhängigkeiten | `cargo audit` | unverändert: 3 × `zip` (S10), Unmaintained/Unsound-Hinweise (S11) |
+
+Der Tauri-Mock leitet `__TAURI_INTERNALS__.invoke` an das Web-Backend weiter, liefert für
+`plugin:dialog|save/open` Pfade wie `C:\Users\Jörg Müller\OneDrive\…` und ersetzt
+`window.confirm`/`alert` wie tauri-plugin-dialog 2.7 (asynchroner Stub, Aufrufe gezählt). Damit
+laufen die `isTauri`-Pfade von `src/files.ts` (Speichern-/Öffnen-Dialog, `write_text_file`,
+`write_file`, `read_text_file`) im Browser.
+
+**L1–L13**
+
+| # | Muster | Ergebnis |
+|---|---|---|
+| L1 | `window.confirm/alert/prompt` | nicht benutzt; eigener Promise-Dialog. Test: Abbrechen löscht nicht, OK löscht, 0 Aufrufe von `window.confirm/alert` |
+| L2 | Backend-Fehler in falscher Sprache | Runde 1 übersetzt; **behoben:** restliche Rohtexte (Updater-Initialisierung, Base64, Paket-Export, nicht lesbare Datei) und verständliche Datei-Fehler (`io_hint`: „in einem anderen Programm geöffnet“, Speicherplatz, Berechtigung, schreibgeschützt), Systemtext in Klammern dahinter |
+| L3 | Sprache beim Erststart | in Ordnung: `sys-locale` liest unter macOS `CFLocale`, unter Windows `GetUserDefaultLocaleName` (nicht `LANG`); Web: `navigator.language` |
+| L4 | BOM | CSV mit BOM, Import mit UTF-8-BOM (Runde 1); **behoben:** Import von UTF-16-Dateien mit BOM (Windows-Editor „Unicode“) in App (`decode_text`) und Web (`decodeText`), Tests |
+| L5 | Windows-Dateisystem | Umbenennen mit Wiederholung (Runde 1); **behoben:** reservierte Gerätenamen (`CON`, `NUL`, `COM1`, `LPT9` … auch mit Endung), `\ / : * ? " < > |`, Steuerzeichen, Punkt/Leerzeichen am Ende werden im Backend abgelehnt (nur unter Windows, Test plattformunabhängig); abgebrochene Temp-Datei wird aufgeräumt. Laufwerksbuchstaben: `C:bericht.pdf` ist nicht absolut → abgelehnt. Lange Pfade: Rust-`std` setzt `\\?\` selbst. Umlaute/Leerzeichen: Pfad wird unverändert durchgereicht (Mock-Test) |
+| L6 | Kürzel-Beschriftung | keine Strg/⌘-Kürzel; nur Einzeltasten (s, n, ←/→, 1–5, ?, Esc) |
+| L7 | Remote-Inhalte | keine: kein HTML-Rendering, kein `iframe`/`object`, CSP `default-src 'self'` |
+| L8 | Hauptthread | **behoben:** Alle Tauri-Kommandos waren synchron und liefen damit auf dem Hauptthread — jedes Speichern (fsync + Umbenennen mit bis zu ~0,4 s Wiederholung unter Windows), Paket-Import und Datei-Schreiben fror das Fenster kurz ein. Jetzt `async` (Tokio-Pool); `set_settings` hält die Sperre während des Schreibens, damit zwei Aufrufe nicht dieselbe `settings.json.tmp` beschreiben. Merge mit Id-Index statt O(n²) (Kern + Web) |
+| L9 | Lange Aufgaben / Wechsel | **behoben:** offene Leerlauf-Frage wird verworfen, sobald der Timer anderswo gestoppt oder neu gestartet wird (sonst erschien sie beim nächsten Timer mit alten Zeiten, „bei letzter Aktivität stoppen“ setzte ein Ende vor dem Start). Import-Knöpfe (Team, Einstellungen) während des Imports gesperrt |
+| L10 | Zeit | **behoben:** KW-Anzeige bei Wochenbeginn Sonntag zeigte die ISO-Woche des Sonntags (So 18.10.–Sa 24.10.2026 als KW 42 statt 43) — neue `weekNumber()` an allen fünf Stellen. **behoben:** Merge verglich `updatedAt` als Text (`10:00+02:00` galt als jünger als `09:00Z`); jetzt als Zeitpunkt (Rust `is_newer`, Web `isNewer`), Tests. DST: Tagesgrenzen über `setDate`/`Local::from_local_datetime` (in Ordnung) |
+| L11 | Bestätigung / Fehler sichtbar | **behoben:** `set_settings` verwarf Schreibfehler still (Einstellungen schienen gespeichert, waren nach dem Neustart weg) — jetzt Fehlermeldung, alter Stand bleibt aktiv. Web-Backend: `mutate`/`set_settings` übernehmen erst nach erfolgreichem `localStorage.setItem` (vorher war der Bestand im Speicher bei „Speicher voll“ trotzdem geändert), Test |
+| L12 | Texte DE/EN, Hilfe | **behoben:** „1 projekte“ / „1 Einträge“ → Singular/Plural (`projectCount`, `entryCount`). Hilfe DE/EN ergänzt (KW bei Sonntag, UTF-16-Import, Merge nach Zeitpunkt, Datei-in-Programm-geöffnet, reservierte Windows-Namen). Mock-Durchlauf findet keine Texte der jeweils anderen Sprache |
+| L13 | Updater | Version 1.0.0 (semver-Vergleich im Plugin), Endpoint/Pubkey unverändert, Fehler mit übersetztem Präfix; **ergänzt:** Detailtext des Prüf-Fehlers als Tooltip in Einstellungen → App |
+
+**Layout (gefunden im Mock-Durchlauf, behoben)**
+
+- Kopfzeile bei gestopptem Timer: Bei 900 px **und** bei der Standardgröße 1240 px lag der
+  Personenfilter (Experte, > 1 Person) über dem Start-Knopf — `.timer` hatte `min-width: 260px`,
+  der Inhalt war breiter und ragte unter das nächste Element. Jetzt schrumpfen Projektwahl und
+  Notizfeld, Knöpfe nicht; der Personenfilter ist auf 200 px begrenzt.
+- Kopfzeile bei laufendem Timer (761–1000 px): Vom Projektnamen blieb nur der Farbpunkt, die
+  Notiz erschien als „\ /“. Jetzt hat der Projektname Vorrang, Notiz und Startzeit werden dort
+  ausgeblendet.
+- Team → Wochenabschluss: Knopf „Woche abschließen“ ragte bei 900 px aus dem Panel (Zeile ohne
+  Umbruch, Grid-Spalten `1fr` ohne `minmax(0, …)`).
+- Web-Version 761–899 px (Tablet, unter dem Desktop-Mindestfenster): Kopfzeile bricht um statt zu
+  überlappen; Eintragszeilen im Expertenmodus passen in die Ansicht.
+
+**Weiter offen**
+
+- S9 `jspdf` 2.5.2 → Major-Upgrade (≥ 4.2.1 + jspdf-autotable 5) für 1.1, mit PDF-Sichtprüfung.
+- S10 `zip` 4.6.1: Der nächste kompatible Schritt (`tauri-plugin-updater` 2.14) zieht Tauri
+  2.11 → 2.12 und rund 30 weitere Crates mit — für einen Test-Build zu groß. Wirkung bleibt gering:
+  macOS-Updates kommen als `.app.tar.gz` (tar/flate2), Windows-Updates als NSIS-`.exe`/`.msi`;
+  der `zip`-Pfad wird nur für v1-kompatible `.zip`-Artefakte benutzt, und vorher wird die
+  Minisign-Signatur geprüft.
+- Bekannte Grenzen aus Abschnitt 6 unverändert (u. a.: beim Merge gewinnt die jüngere Änderung
+  auch gegenüber lokal gesperrten Einträgen — eine Sperre per Merge zu schützen würde auch das
+  Wiederöffnen durch die Projektleitung blockieren).
+
+**Nur auf echter Hardware prüfbar (zusätzlich zu Abschnitt 7)**
+
+- [ ] Windows: Fenster bleibt beim Speichern bedienbar, auch mit aktivem Virenscanner/OneDrive
+      (Kommandos laufen jetzt asynchron).
+- [ ] Windows: CSV in Excel geöffnet lassen, erneut exportieren und dieselbe Datei überschreiben →
+      Meldung „Die Datei ist in einem anderen Programm geöffnet …“; nach dem Schließen klappt es.
+- [ ] Windows: Im Speichern-Dialog `NUL.csv` oder `CON.pdf` eingeben → Meldung „Dateiname unter
+      Windows nicht erlaubt“, keine Datei, kein Hänger.
+- [ ] Windows-Editor: Team-Paket als „Unicode“ (UTF-16) speichern und importieren → wird gelesen.
+- [ ] Einstellungen speichern, wenn der Config-Ordner schreibgeschützt ist → Fehlermeldung statt
+      stillem Verlust (macOS: Rechte von `~/Library/Application Support/com.lan-solo.timelog`
+      entziehen).
+- [ ] Wochenbeginn Sonntag: KW in Woche, Berichte, Dashboard, Team stimmt mit dem Kalender
+      (Montag) überein.
+- [ ] Fenster 900×600 und 1240×800, Experte mit zwei Personen, Timer gestoppt und laufend: nichts
+      überlappt in der Kopfzeile (macOS und Windows, 100 % und 150 % DPI).
+- [ ] Leerlauf-Dialog offen lassen, Timer über die Kopfzeile stoppen und neu starten → der alte
+      Dialog verschwindet.

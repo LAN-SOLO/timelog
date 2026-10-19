@@ -45,6 +45,17 @@ export async function saveBinaryFile(name: string, bytes: Uint8Array, filter: Fi
   return true;
 }
 
+/**
+ * Text wie `decode_text` in commands.rs: UTF-16 mit BOM (Windows-Editor
+ * „Unicode“) oder UTF-8 — ein UTF-8-BOM bleibt stehen, den entfernt der
+ * Paket-Parser.
+ */
+export function decodeText(b: Uint8Array): string {
+  if (b[0] === 0xff && b[1] === 0xfe) return new TextDecoder('utf-16le').decode(b.subarray(2));
+  if (b[0] === 0xfe && b[1] === 0xff) return new TextDecoder('utf-16be').decode(b.subarray(2));
+  return new TextDecoder('utf-8', { ignoreBOM: true }).decode(b);
+}
+
 /** Textdatei auswählen und lesen. `null` = abgebrochen. */
 export async function openTextFile(filter: FileFilter): Promise<string | null> {
   if (isTauri) {
@@ -69,7 +80,7 @@ export async function openTextFile(filter: FileFilter): Promise<string | null> {
     input.addEventListener('change', () => {
       const f = input.files?.[0];
       if (!f) return finish(null);
-      f.text().then(finish).catch((e) => {
+      f.arrayBuffer().then((b) => finish(decodeText(new Uint8Array(b)))).catch((e) => {
         done = true;
         input.remove();
         reject(e);

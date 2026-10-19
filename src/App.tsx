@@ -163,11 +163,22 @@ export default function App() {
     };
   }, []);
 
+  // Eine offene Leerlauf-Frage gehört zu genau einem Timer: Wird er anderswo
+  // gestoppt (Kopfzeile, Kürzel, Wochenabschluss) oder neu gestartet, ist sie
+  // hinfällig — sonst erschiene sie beim nächsten Timer mit alten Zeiten und
+  // „bei letzter Aktivität stoppen“ setzte ein Ende vor dessen Start.
+  const runningId = running?.id ?? null;
+  const idleFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (idlePrompt && idleFor.current !== runningId) setIdlePrompt(null);
+  }, [runningId, idlePrompt]);
+
   // Leerlauf & Feierabend prüfen
   useEffect(() => {
     if (!settings || !running || idlePrompt) return;
     const idleMs = settings.idleMinutes * 60_000;
     if (idleMs > 0 && Date.now() - lastActivity.current > idleMs) {
+      idleFor.current = running.id;
       setIdlePrompt({ since: new Date(running.start), lastActivity: new Date(lastActivity.current) });
       return;
     }

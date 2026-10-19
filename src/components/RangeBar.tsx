@@ -8,7 +8,7 @@ import {
   addMonths,
   dateKey,
   fmtRange,
-  isoWeek,
+  weekNumber,
   parseDateKey,
   rangeDay,
   rangeMonth,
@@ -61,7 +61,7 @@ export function useRange(ws: WeekStart, initial: RangeKind = 'week'): RangeState
   };
 
   const label = (lang: Lang, t: Dict) => {
-    if (kind === 'week') return `${t.weekLabel(isoWeek(range.from))} · ${fmtRange(range, lang)}`;
+    if (kind === 'week') return `${t.weekLabel(weekNumber(range.from))} · ${fmtRange(range, lang)}`;
     if (kind === 'month')
       return range.from.toLocaleDateString(lang === 'de' ? 'de-DE' : 'en-GB', { month: 'long', year: 'numeric' });
     return fmtRange(range, lang);

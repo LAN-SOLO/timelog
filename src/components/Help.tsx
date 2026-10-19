@@ -101,7 +101,7 @@ const de: Content = {
       body: [
         'timelog hat keinen Server und keinen Cloud-Sync — bewusst. Die Zusammenführung läuft über Dateien:',
         '• Jede Person exportiert unter „Team“ ihre Einträge als JSON-Paket und schickt es der Projektleitung (Mail, Netzlaufwerk, Chat).',
-        '• Die Projektleitung importiert die Pakete. Der Abgleich ist Id-basiert: Nichts wird doppelt angelegt, bei Konflikten gewinnt die jüngere Änderung. Ein zweiter Import desselben Pakets ändert nichts.',
+        '• Die Projektleitung importiert die Pakete. Der Abgleich ist Id-basiert: Nichts wird doppelt angelegt, bei Konflikten gewinnt die jüngere Änderung (verglichen wird der echte Zeitpunkt, auch über Zeitzonen hinweg). Ein zweiter Import desselben Pakets ändert nichts. Pakete aus dem Windows-Editor (UTF-8 mit BOM oder „Unicode“/UTF-16) werden ebenfalls gelesen.',
         '• Wochenabschluss: Eine Woche je Person abschließen sperrt ihre Einträge — keine Änderungen, keine neuen Einträge. Wieder öffnen geht jederzeit im Expertenmodus.',
         'Hinweis: timelog ersetzt keine Arbeitszeiterfassung mit Prüfsiegel — es liefert aber die Exporte für Buchhaltung und Abrechnung.',
       ],
@@ -161,6 +161,7 @@ const de: Content = {
       body: [
         '„Heute“ zeigt einen Tag, „Woche“ sieben Tage mit Tagessummen. Zukünftige Tage ohne Einträge bleiben ausgeblendet.',
         '• Wochenbeginn (Montag/Sonntag) und Soll-Stunden pro Woche stehen in den Einstellungen; im Expertenmodus gelten die Soll-Stunden der gefilterten Person, wenn gesetzt.',
+        '• Kalenderwoche: Beginnt die Woche am Sonntag, trägt sie die ISO-KW ihres Montags (So 18.10.–Sa 24.10.2026 = KW 43).',
         '• Die Wochenbilanz zeigt Ist minus Soll — grün bei Überschuss, rot bei Fehlstunden.',
         '• Experte: „Woche abschließen“ sperrt die Woche für die gewählte Person. Das Schloss-Symbol oben zeigt den Zustand; „Woche öffnen“ hebt die Sperre auf.',
         '• Tastatur (Experte): ← → wechseln Tag bzw. Woche.',
@@ -268,6 +269,8 @@ const de: Content = {
         '• „Das Ende liegt vor dem Start“: Beim Bearbeiten der Startzeit nach dem Ende — erst das Ende anpassen.',
         '• Projekt lässt sich nicht löschen: Es hat Einträge. Archivieren Sie es stattdessen.',
         '• „Dateityp nicht erlaubt“: Beim Speichern die Endung .csv, .json bzw. .pdf beibehalten.',
+        '• „Die Datei ist in einem anderen Programm geöffnet“ (Windows): Die Zieldatei ist z. B. noch in Excel offen — dort schließen und erneut speichern. Speichern-Fehler erscheinen immer als Meldung, nichts wird still verworfen; bei „Speichern fehlgeschlagen“ bleibt der letzte gespeicherte Stand erhalten.',
+        '• „Dateiname unter Windows nicht erlaubt“: Reservierte Namen wie CON, NUL, COM1 oder LPT1 (auch mit Endung) und die Zeichen \\ / : * ? " < > | gehen unter Windows nicht — anderen Namen wählen.',
         '• Alle Einträge sind weg: Im Datenordner nach „data.json.corrupt-…“ suchen — das ist der gesicherte alte Bestand.',
         '• Import meldet 0 neu: Das Paket war bereits importiert — der Merge ist idempotent.',
         '• Dauer im Bericht kleiner als in der Tagesansicht: Berichte schneiden am Zeitraum, die Tagesansicht zählt den ganzen Eintrag zum Starttag.',
@@ -343,7 +346,7 @@ const en: Content = {
       body: [
         'timelog has no server and no cloud sync — on purpose. Merging works through files:',
         '• Each person exports their entries under “Team” as a JSON package and sends it to the project lead (mail, network share, chat).',
-        '• The project lead imports the packages. Merging is id-based: nothing is duplicated, on conflict the newer change wins. Importing the same package twice changes nothing.',
+        '• The project lead imports the packages. Merging is id-based: nothing is duplicated, on conflict the newer change wins (compared as real points in time, across time zones). Importing the same package twice changes nothing. Packages saved with Windows Notepad (UTF-8 with BOM or “Unicode”/UTF-16) are read as well.',
         '• Week close: closing a week for a person locks their entries — no changes, no new entries. Reopening is always possible in expert mode.',
         'Note: timelog does not replace certified working-time recording — but it delivers the exports for accounting and billing.',
       ],
@@ -403,6 +406,7 @@ const en: Content = {
       body: [
         '“Today” shows one day, “Week” seven days with day totals. Future days without entries stay hidden.',
         '• Week start (Monday/Sunday) and target hours per week live in settings; in expert mode the filtered person’s target hours apply if set.',
+        '• Week number: if the week starts on Sunday, it carries the ISO week number of its Monday (Sun 18/10–Sat 24/10/2026 = week 43).',
         '• The week balance shows actual minus target — green for surplus, red for missing hours.',
         '• Expert: “Close week” locks the week for the selected person. The lock icon at the top shows the state; “Reopen week” lifts the lock.',
         '• Keyboard (expert): ← → change day or week.',
@@ -510,6 +514,8 @@ const en: Content = {
         '• “End is before start”: when editing the start past the end — adjust the end first.',
         '• Project cannot be deleted: it has entries. Archive it instead.',
         '• “File type not allowed”: keep the .csv, .json or .pdf extension when saving.',
+        '• “The file is open in another program” (Windows): the target file is still open, e.g. in Excel — close it there and save again. Save errors always appear as a message, nothing is dropped silently; after “Saving failed” the last saved state is kept.',
+        '• “File name not allowed on Windows”: reserved names like CON, NUL, COM1 or LPT1 (with any extension) and the characters \\ / : * ? " < > | do not work on Windows — choose another name.',
         '• All entries are gone: look for “data.json.corrupt-…” in the data folder — that is the saved previous data.',
         '• Import reports 0 new: the package was already imported — merging is idempotent.',
         '• Duration in the report smaller than in the day view: reports cut at the period, the day view counts the whole entry on its start day.',

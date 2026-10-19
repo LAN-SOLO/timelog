@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { BudgetUsage, Data, Filter, Lang, Settings, Summary, WeekTotal, api } from '../api';
 import { Dict } from '../i18n';
-import { DAY, fmtHM, fmtHours, fmtMoney, isoWeek, parseDateKey, toIso } from '../util';
+import { DAY, fmtHM, fmtHours, fmtMoney, weekNumber, parseDateKey, toIso } from '../util';
 import { RangeBar, useRange } from './RangeBar';
 
 export function Dashboard({
@@ -174,7 +174,7 @@ export function Dashboard({
                       <div className="b nb first" style={{ height: `${(nb / maxTrend) * 100}%` }} />
                       <div className="b" style={{ height: `${(w.billableSeconds / maxTrend) * 100}%`, borderRadius: nb > 0 ? 0 : undefined }} />
                     </div>
-                    <span className="lab">{t.weekLabel(isoWeek(parseDateKey(w.weekStart)))}</span>
+                    <span className="lab">{t.weekLabel(weekNumber(parseDateKey(w.weekStart)))}</span>
                   </div>
                 );
               })}

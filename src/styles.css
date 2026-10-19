@@ -62,7 +62,7 @@ input, textarea { user-select: text; -webkit-user-select: text; }
 .brand { font-family: var(--mono); font-weight: 600; font-size: 17px; }
 .brand .name { color: var(--blue); }
 .brand .dot { color: var(--text); }
-.tagline { font-size: 12px; color: var(--text-faint); margin-right: 6px; }
+.tagline { font-size: 12px; color: var(--text-faint); margin-right: 6px; flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .spacer { flex: 1; }
 
 button {
@@ -440,17 +440,20 @@ html[data-theme='light'] .seg button.active { color: #ffffff; }
   margin-left: 6px;
 }
 
-/* timer in header */
+/* timer in header — min-width 0 + schrumpfbare Kinder: sonst ragt der Inhalt
+   (Projektwahl, Notiz, Start) über die Spalte und der Personenfilter liegt
+   über dem Start-Knopf. */
 .timer {
   flex: 1;
-  min-width: 260px;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 0 8px;
 }
-.timer select { width: auto; max-width: 240px; padding: 4px 8px; font-size: 12px; }
-.timer input[type='text'] { flex: 1; min-width: 100px; padding: 4px 8px; font-size: 12px; }
+.timer select { width: auto; max-width: 240px; min-width: 0; flex: 0 1 auto; padding: 4px 8px; font-size: 12px; }
+.timer input[type='text'] { flex: 1; min-width: 80px; padding: 4px 8px; font-size: 12px; }
+.timer button { flex-shrink: 0; }
 .timer .clock {
   font-size: 18px;
   font-weight: 600;
@@ -640,7 +643,7 @@ html[data-theme='light'] .seg button.active { color: #ffffff; }
 .legend i.nb { background: var(--border); }
 
 /* team */
-.team { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.team { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
 .team .panel.wide { grid-column: 1 / -1; }
 .trow { display: flex; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid rgba(34, 50, 82, 0.5); font-size: 12.5px; }
 .trow .grow1 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -676,7 +679,7 @@ html[data-theme='light'] .seg button.active { color: #ffffff; }
 .tabbar { display: none; }
 .sb-drawerhead { display: none; }
 .sb-backdrop { display: none; }
-.personfilter { width: auto; padding: 4px 6px; font-size: 11.5px; }
+.personfilter { width: auto; max-width: 200px; min-width: 0; flex: 0 1 auto; padding: 4px 6px; font-size: 11.5px; }
 
 /* Touch-Geräte: Hover-Enthüllungen entfallen, Ziele etwas größer */
 @media (hover: none) {
@@ -952,6 +955,18 @@ button, .chip, .tab { -webkit-tap-highlight-color: transparent; touch-action: ma
   .sidebar { width: 180px; }
   .header .tagline { display: none; }
   .timer { min-width: 200px; }
+  /* Laufender Timer: Projektname hat Vorrang vor Notiz und Startzeit — sonst
+     bleibt bei 900 px (Mindestfenster) nur ein Farbpunkt übrig. */
+  .timer .tnote, .timer .dim { display: none; }
+  .timer .tproj { flex: 0 1 auto; min-width: 72px; }
+  .personfilter { max-width: 150px; min-width: 0; }
+  .timer select { max-width: 170px; }
+  .timer input[type='text'] { min-width: 60px; }
+  /* Reicht die Breite nicht (Web-Version auf Tablets < 900 px), rutschen
+     Personenfilter und Modus-Umschalter in eine zweite Zeile, statt den
+     Timer zu überdecken. */
+  .header { flex-wrap: wrap; row-gap: 6px; }
+  .timer { min-width: min-content; }
 }
 
 /* help language toggle (DE/EN) in the modal header — independent of the app language */
@@ -976,3 +991,10 @@ button, .chip, .tab { -webkit-tap-highlight-color: transparent; touch-action: ma
 .hlp-lang-btn + .hlp-lang-btn { border-left: 1px solid var(--border, #223252); }
 .hlp-lang-btn:hover { color: var(--text, #e2e8f0); }
 .hlp-lang-btn.active { color: var(--blue, #38bdf8); background: var(--bg-raised, rgba(56, 189, 248, 0.08)); }
+
+/* Web-Version auf Tablets (761–899 px, unter dem Desktop-Mindestfenster):
+   Eintragszeilen im Expertenmodus passen sonst nicht in die Ansicht. */
+@media (min-width: 761px) and (max-width: 899px) {
+  .sidebar { width: 150px; }
+  .erow.expert { grid-template-columns: 10px minmax(80px, 1fr) minmax(64px, 0.9fr) 56px 56px 50px minmax(70px, 2fr) 28px auto; gap: 6px; }
+}

@@ -176,9 +176,9 @@ function ensureMe(d: Data) {
   d.mePersonId = id;
 }
 
-function persist() {
+function persist(d: Data) {
   try {
-    localStorage.setItem(DATA_KEY, JSON.stringify(data));
+    localStorage.setItem(DATA_KEY, JSON.stringify(d));
   } catch (e) {
     throw msg(`Speichern fehlgeschlagen: ${e}`, `Saving failed: ${e}`);
   }
@@ -188,8 +188,10 @@ function persist() {
 function mutate(f: (d: Data) => void): Data {
   const next: Data = JSON.parse(JSON.stringify(data));
   f(next);
+  // Erst speichern, dann übernehmen — wie `mutate` in commands.rs: schlägt
+  // das Speichern fehl (Speicher voll), bleibt der Bestand unverändert.
+  persist(next);
   data = next;
-  persist();
   return JSON.parse(JSON.stringify(data));
 }
 
@@ -481,18 +483,31 @@ function parsePackage(json: string): Package {
   return p;
 }
 
+/** Wie `is_newer` in core/src/merge.rs: Zeitpunkte vergleichen, nicht Text. */
+function isNewer(a: string, b: string): boolean {
+  const x = parseIso(a);
+  const y = parseIso(b);
+  if (x && y) return x.getTime() > y.getTime();
+  if (x) return true;
+  if (y) return false;
+  return a > b;
+}
+
 function mergeVec<T extends { id: string; updatedAt: string }>(target: T[], incoming: T[], rep: MergeReport): number {
   let added = 0;
+  const index = new Map<string, number>();
+  target.forEach((t, i) => index.set(t.id, i));
   for (const item of incoming) {
     if (!item.id) continue;
-    const i = target.findIndex((t) => t.id === item.id);
+    const i = index.get(item.id) ?? -1;
     if (i < 0) {
+      index.set(item.id, target.length);
       target.push(JSON.parse(JSON.stringify(item)));
       rep.added += 1;
       added += 1;
     } else if (deepEq(target[i], item)) {
       rep.unchanged += 1;
-    } else if (item.updatedAt > target[i].updatedAt) {
+    } else if (isNewer(item.updatedAt, target[i].updatedAt)) {
       target[i] = JSON.parse(JSON.stringify(item));
       rep.updated += 1;
     } else {
@@ -521,12 +536,13 @@ const handlers: Record<string, (a: Args) => unknown> = {
   // settings
   get_settings: () => ({ ...settings }),
   set_settings: (a) => {
-    settings = sanitizeSettings({ ...defaultSettings(), ...(a.settings as Settings) });
+    const next = sanitizeSettings({ ...defaultSettings(), ...(a.settings as Settings) });
     try {
-      localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
+      localStorage.setItem(SETTINGS_KEY, JSON.stringify(next));
     } catch (e) {
-      throw msg(`Speichern fehlgeschlagen: ${e}`, `Saving failed: ${e}`);
+      throw next.language === 'de' ? `Einstellungen nicht gespeichert: ${e}` : `Settings not saved: ${e}`;
     }
+    settings = next;
   },
 
   // data

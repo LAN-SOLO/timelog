@@ -14,16 +14,21 @@ pub fn data_file(dir: &Path) -> PathBuf {
     dir.join("data.json")
 }
 
-pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
+pub fn write_atomic(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let mut tmp_name = path.file_name().map(|n| n.to_os_string()).unwrap_or_default();
     tmp_name.push(".tmp");
     let tmp = path.with_file_name(tmp_name);
-    {
-        let mut f = std::fs::File::create(&tmp).map_err(|e| e.to_string())?;
-        f.write_all(bytes).map_err(|e| e.to_string())?;
+    let written = (|| {
+        let mut f = std::fs::File::create(&tmp)?;
+        f.write_all(bytes)?;
         // Inhalt auf die Platte, bevor umbenannt wird — sonst kann nach einem
         // Stromausfall eine leere Datei unter dem alten Namen liegen.
-        f.sync_all().map_err(|e| e.to_string())?;
+        f.sync_all()
+    })();
+    if let Err(e) = written {
+        // Halb geschriebene Temp-Datei (z. B. Platte voll) nicht liegen lassen.
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
     }
     // std::fs::rename ersetzt das Ziel auch unter Windows (MoveFileExW mit
     // MOVEFILE_REPLACE_EXISTING). Dort hält der Virenscanner (oder ein
@@ -43,7 +48,7 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
         }
     }
     let _ = std::fs::remove_file(&tmp);
-    Err(last.map(|e| e.to_string()).unwrap_or_default())
+    Err(last.unwrap_or_else(|| std::io::Error::other("rename")))
 }
 
 /// Versuche für das Umbenennen (insgesamt höchstens ~0,4 s Wartezeit).
@@ -55,6 +60,35 @@ pub fn backup_corrupt(path: &Path) -> Option<PathBuf> {
     name.push(format!(".corrupt-{}", chrono::Local::now().format("%Y%m%d-%H%M%S")));
     let target = path.with_file_name(name);
     std::fs::copy(path, &target).ok().map(|_| target)
+}
+
+/// Verständlicher Text zu einem Dateifehler (Sprache der Oberfläche), der
+/// Originaltext des Systems bleibt in Klammern dahinter.
+pub fn io_hint(e: &std::io::Error, en: bool) -> String {
+    let hint = match e.raw_os_error() {
+        // Windows: ERROR_SHARING_VIOLATION / ERROR_LOCK_VIOLATION — Datei ist in
+        // Excel, im Virenscanner oder im OneDrive-Client geöffnet.
+        Some(32) | Some(33) if cfg!(windows) => Some(if en {
+            "The file is open in another program (e.g. Excel, antivirus, OneDrive) — close it and try again"
+        } else {
+            "Die Datei ist in einem anderen Programm geöffnet (z. B. Excel, Virenscanner, OneDrive) — bitte schließen und erneut versuchen"
+        }),
+        // ERROR_DISK_FULL / ERROR_HANDLE_DISK_FULL bzw. ENOSPC
+        Some(112) | Some(39) if cfg!(windows) => Some(if en { "Not enough disk space" } else { "Nicht genug Speicherplatz" }),
+        Some(28) if !cfg!(windows) => Some(if en { "Not enough disk space" } else { "Nicht genug Speicherplatz" }),
+        _ => None,
+    };
+    let hint = hint.or(match e.kind() {
+        std::io::ErrorKind::PermissionDenied => Some(if en { "No permission to write here" } else { "Keine Berechtigung für diesen Ort" }),
+        std::io::ErrorKind::NotFound => Some(if en { "File or folder not found" } else { "Datei oder Ordner nicht gefunden" }),
+        std::io::ErrorKind::ReadOnlyFilesystem => Some(if en { "The drive is read-only" } else { "Das Laufwerk ist schreibgeschützt" }),
+        std::io::ErrorKind::StorageFull => Some(if en { "Not enough disk space" } else { "Nicht genug Speicherplatz" }),
+        _ => None,
+    });
+    match hint {
+        Some(h) => format!("{h} ({e})"),
+        None => e.to_string(),
+    }
 }
 
 pub fn load(dir: &Path, language: &str) -> Data {
@@ -94,8 +128,8 @@ pub fn ensure_me(data: &mut Data, language: &str) {
     data.me_person_id = id;
 }
 
-pub fn save(dir: &Path, data: &Data) -> Result<(), String> {
-    let json = serde_json::to_string_pretty(data).map_err(|e| e.to_string())?;
+pub fn save(dir: &Path, data: &Data) -> std::io::Result<()> {
+    let json = serde_json::to_string_pretty(data).map_err(std::io::Error::other)?;
     write_atomic(&data_file(dir), json.as_bytes())
 }
 

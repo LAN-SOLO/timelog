@@ -129,10 +129,9 @@ pub fn load(app: &tauri::AppHandle) -> Settings {
     }
 }
 
-pub fn store(app: &tauri::AppHandle, settings: &Settings) {
-    if let Ok(json) = serde_json::to_string_pretty(settings) {
-        let _ = crate::store::write_atomic(&settings_path(app), json.as_bytes());
-    }
+pub fn store(app: &tauri::AppHandle, settings: &Settings) -> std::io::Result<()> {
+    let json = serde_json::to_string_pretty(settings).map_err(std::io::Error::other)?;
+    crate::store::write_atomic(&settings_path(app), json.as_bytes())
 }
 
 #[cfg(test)]

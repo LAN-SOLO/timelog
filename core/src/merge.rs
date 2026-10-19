@@ -67,28 +67,45 @@ pub struct MergeReport {
     pub entries_added: u32,
 }
 
-/// Generischer Id-Merge für eine Sammlung.
+/// Ist `a` jünger als `b`? Zeitstempel werden als Zeitpunkte verglichen —
+/// ein reiner Textvergleich hielte z. B. „10:00+02:00“ (= 08:00 UTC) für
+/// jünger als „09:00Z“. Nicht lesbare Werte fallen auf den Textvergleich zurück.
+pub fn is_newer(a: &str, b: &str) -> bool {
+    match (crate::time::parse_rfc3339(a), crate::time::parse_rfc3339(b)) {
+        (Some(x), Some(y)) => x > y,
+        (Some(_), None) => true,
+        (None, Some(_)) => false,
+        (None, None) => a > b,
+    }
+}
+
+/// Generischer Id-Merge für eine Sammlung (Index über die Ids, damit auch
+/// große Pakete in linearer Zeit zusammengeführt werden).
 fn merge_vec<T, FId, FUpd>(target: &mut Vec<T>, incoming: &[T], id: FId, updated_at: FUpd, rep: &mut MergeReport) -> u32
 where
     T: Clone + PartialEq,
     FId: Fn(&T) -> &str,
     FUpd: Fn(&T) -> &str,
 {
+    let mut index: std::collections::HashMap<String, usize> =
+        target.iter().enumerate().map(|(i, t)| (id(t).to_string(), i)).collect();
     let mut added = 0;
     for item in incoming {
         if id(item).is_empty() {
             continue;
         }
-        match target.iter_mut().find(|t| id(t) == id(item)) {
+        match index.get(id(item)).copied() {
             None => {
+                index.insert(id(item).to_string(), target.len());
                 target.push(item.clone());
                 rep.added += 1;
                 added += 1;
             }
-            Some(existing) => {
+            Some(i) => {
+                let existing = &mut target[i];
                 if existing == item {
                     rep.unchanged += 1;
-                } else if updated_at(item) > updated_at(existing) {
+                } else if is_newer(updated_at(item), updated_at(existing)) {
                     *existing = item.clone();
                     rep.updated += 1;
                 } else {
@@ -177,6 +194,23 @@ mod tests {
         assert_eq!(rep2.added, 0);
         assert_eq!(rep2.updated, 0);
         assert_eq!(target.entries.len(), 3);
+    }
+
+    #[test]
+    fn newer_compares_instants_not_text() {
+        // 10:00+02:00 = 08:00Z ist ÄLTER als 09:00Z
+        assert!(!is_newer("2026-10-19T10:00:00+02:00", "2026-10-19T09:00:00Z"));
+        assert!(is_newer("2026-10-19T09:00:00Z", "2026-10-19T10:00:00+02:00"));
+        assert!(is_newer("2026-10-19T09:00:00.500Z", "2026-10-19T09:00:00Z"));
+        assert!(is_newer("2026-10-19T09:00:00Z", "kaputt"));
+        assert!(!is_newer("kaputt", "2026-10-19T09:00:00Z"));
+
+        let mut target = Data::default();
+        target.entries.push(entry("e", "lokal", "2026-10-19T09:00:00Z"));
+        let mut incoming = Data::default();
+        incoming.entries.push(entry("e", "fremd", "2026-10-19T10:00:00+02:00"));
+        merge_into(&mut target, &incoming);
+        assert_eq!(target.entries[0].note, "lokal");
     }
 
     #[test]
