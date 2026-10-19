@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react';
 import { Data, Settings, UpdateInfo, api, isTauri } from '../api';
 import { openTextFile, saveTextFile } from '../files';
 import { Dict } from '../i18n';
+import { NumField } from './NumField';
 import { dateKey } from '../util';
 
-export const APP_VERSION = '0.2.0';
+export const APP_VERSION = '1.0.0';
 
 type SetTab = 'general' | 'tracking' | 'reports' | 'app';
 
@@ -38,12 +39,14 @@ export function SettingsModal({
     api.dataPath().then(setDataPath).catch(() => {});
   }, []);
 
-  const set = <K extends keyof Settings>(key: K, value: Settings[K]) =>
-    setS((prev) => {
-      const next = { ...prev, [key]: value };
-      onLive(next);
-      return next;
-    });
+  // Live-Vorschau außerhalb des State-Updaters melden — ein setState der
+  // App aus dem Updater heraus löst „Cannot update a component while
+  // rendering a different component“ aus.
+  const set = <K extends keyof Settings>(key: K, value: Settings[K]) => {
+    const next = { ...s, [key]: value };
+    setS(next);
+    onLive(next);
+  };
 
   const checkUpdates = () => {
     setUpdState('checking');
@@ -169,11 +172,7 @@ export function SettingsModal({
             <div className="row2">
               <label className="field grow1">
                 <span>{t.weeklyHoursSetting}</span>
-                <input
-                  type="text"
-                  value={s.weeklyHours || ''}
-                  onChange={(e) => set('weeklyHours', num(e.target.value, 168))}
-                />
+                <NumField value={s.weeklyHours} max={168} onChange={(n) => set('weeklyHours', n)} />
               </label>
               <label className="field grow1">
                 <span>{t.idleMinutes}</span>
@@ -244,7 +243,10 @@ export function SettingsModal({
                         disabled={installing}
                         onClick={() => {
                           setInstalling(true);
-                          api.installUpdate().catch(() => setInstalling(false));
+                          api.installUpdate().catch((e) => {
+                            setInstalling(false);
+                            onFail(e);
+                          });
                         }}
                       >
                         {installing ? t.updateInstalling : t.installUpdate}

@@ -112,7 +112,10 @@ export default function App() {
           setUpdateAvail(u);
           if (s.autoUpdate) {
             setInstalling(true);
-            api.installUpdate().catch(() => setInstalling(false));
+            api.installUpdate().catch((e) => {
+              setInstalling(false);
+              fail(e);
+            });
           }
         })
         .catch(() => {});
@@ -262,24 +265,25 @@ export default function App() {
   };
 
   // --- Tastaturkürzel (Experte) ------------------------------------------
+  // Esc schließt Dialoge in beiden Modi (auch aus einem Eingabefeld heraus);
+  // die übrigen Kürzel gibt es nur im Expertenmodus.
   useEffect(() => {
-    if (!expert) return;
     const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === 'Escape') {
+        if (confirm) settleConfirm(false);
+        else if (projectEdit) setProjectEdit(null);
+        else if (showSettings) {
+          if (settingsBackup) setSettings(settingsBackup);
+          setSettingsBackup(null);
+          setShowSettings(false);
+        } else if (drawerOpen) setDrawerOpen(false);
+        return;
+      }
+      if (!expert) return;
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
-      if (showSettings || projectEdit || confirm || idlePrompt) {
-        if (e.key === 'Escape') {
-          setShowSettings(false);
-          setProjectEdit(null);
-          if (confirm) settleConfirm(false);
-        }
-        return;
-      }
-      if (e.key === 'Escape' && drawerOpen) {
-        setDrawerOpen(false);
-        return;
-      }
+      if (showSettings || projectEdit || confirm || idlePrompt) return;
       switch (e.key) {
         case 's':
           running ? stopTimer() : startTimer();
@@ -322,7 +326,8 @@ export default function App() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [expert, view, running, startTimer, stopTimer, showSettings, projectEdit, confirm, idlePrompt, drawerOpen]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expert, view, running, startTimer, stopTimer, showSettings, settingsBackup, projectEdit, confirm, idlePrompt, drawerOpen]);
 
   if (!settings) return null;
 
@@ -598,7 +603,10 @@ export default function App() {
             disabled={installing}
             onClick={() => {
               setInstalling(true);
-              api.installUpdate().catch(() => setInstalling(false));
+              api.installUpdate().catch((e) => {
+                setInstalling(false);
+                fail(e);
+              });
             }}
           >
             {installing ? t.updateInstalling : t.updateInstall}

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Client, Data, Lang, Person, Settings, Task, api } from '../api';
 import { openTextFile, saveTextFile } from '../files';
 import { Dict } from '../i18n';
+import { NumField } from './NumField';
 import { IconArchive, IconChevronLeft, IconChevronRight, IconDownload, IconEdit, IconLock, IconPlus, IconTrash, IconUnlock, IconUpload } from '../icons';
 import { PALETTE, addDays, dateKey, fmtDate, fmtRange, isoWeek, nextColor, parseDateKey, startOfDay, weekStartOf } from '../util';
 
@@ -30,7 +31,6 @@ export function Team({
   const [lockPerson, setLockPerson] = useState(data.mePersonId);
   const [lockAnchor, setLockAnchor] = useState(() => startOfDay(new Date()));
 
-  const num = (v: string) => Math.max(0, Number(v.replace(',', '.')) || 0);
   const run = (p: Promise<Data>) => p.then(onData).catch(onFail);
 
   // --- persons ---
@@ -179,11 +179,11 @@ export function Team({
                 </label>
                 <label className="field">
                   <span>{t.weeklyHours}</span>
-                  <input type="text" value={personEdit.weeklyHours || ''} onChange={(e) => setPersonEdit({ ...personEdit, weeklyHours: num(e.target.value) })} />
+                  <NumField value={personEdit.weeklyHours} max={168} onChange={(n) => setPersonEdit((pe) => (pe ? { ...pe, weeklyHours: n } : pe))} />
                 </label>
                 <label className="field">
                   <span>{t.hourlyRate}</span>
-                  <input type="text" value={personEdit.hourlyRate || ''} onChange={(e) => setPersonEdit({ ...personEdit, hourlyRate: num(e.target.value) })} />
+                  <NumField value={personEdit.hourlyRate} onChange={(n) => setPersonEdit((pe) => (pe ? { ...pe, hourlyRate: n } : pe))} />
                 </label>
                 <label className="field full">
                   <span>{t.color}</span>

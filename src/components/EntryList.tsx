@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Data, Entry, Lang, Settings, api } from '../api';
 import { Dict } from '../i18n';
 import {
@@ -98,7 +98,22 @@ export function EntryList({
   const person = data.persons.find((p) => p.id === personId);
   const target = expert && person && person.weeklyHours > 0 ? person.weeklyHours : settings.weeklyHours;
 
-  const save = (e: Entry) => api.saveEntry(e).then(onData).catch(onFail);
+  /** Speichern; `false`, wenn das Backend ablehnt (Zeile setzt sich dann zurück). */
+  const save = (e: Entry): Promise<boolean> =>
+    api
+      .saveEntry(e)
+      .then((d) => {
+        onData(d);
+        return true;
+      })
+      .catch((err) => {
+        onFail(err);
+        return false;
+      });
+  // Sperre je Eintrag: eigene Sperre ODER abgeschlossene Woche SEINER Person
+  // (in „Alle Personen“ gilt die Sperre der eigenen Woche nicht für andere).
+  const isLocked = (e: Entry) =>
+    e.locked || data.locks.some((l) => l.personId === e.personId && l.weekStart === dateKey(weekStartOf(new Date(e.start), ws)));
 
   const addEntry = (day: Date) => {
     const proj =
@@ -213,7 +228,7 @@ export function EntryList({
                   expert={expert}
                   now={now}
                   rounding={settings.rounding}
-                  locked={e.locked || weekLocked}
+                  locked={isLocked(e)}
                   showPerson={expert && !personFilter}
                   onSave={save}
                   onDuplicate={() => duplicate(e)}
@@ -284,7 +299,7 @@ function EntryRow({
   rounding: number;
   locked: boolean;
   showPerson: boolean;
-  onSave: (e: Entry) => void;
+  onSave: (e: Entry) => Promise<boolean>;
   onDuplicate: () => void;
   onRestart: () => void;
   onDelete: () => void;
@@ -307,7 +322,25 @@ function EntryRow({
   const secs = durationSecs(e, now);
   const day = new Date(e.start);
 
+  // Esc verwirft: das anschließende blur() darf dann NICHT speichern — der
+  // onBlur-Handler sieht noch den getippten Wert (gleicher Render-Durchlauf).
+  const skipCommit = useRef(false);
+  const reset = () => {
+    setFrom(fmtTime(e.start));
+    setTo(fmtTime(e.end));
+    setNote(e.note);
+  };
+  const commit = (next: Entry) => {
+    onSave(next).then((ok) => {
+      if (!ok) reset();
+    });
+  };
+
   const commitFrom = () => {
+    if (skipCommit.current) {
+      skipCommit.current = false;
+      return;
+    }
     if (from === fmtTime(e.start)) return;
     const d = withTime(day, from);
     if (!d) {
@@ -315,9 +348,13 @@ function EntryRow({
       onFail(t.entryInvalidTime);
       return;
     }
-    onSave({ ...e, start: toIso(d) });
+    commit({ ...e, start: toIso(d) });
   };
   const commitTo = () => {
+    if (skipCommit.current) {
+      skipCommit.current = false;
+      return;
+    }
     if (to === fmtTime(e.end)) return;
     if (!to.trim()) {
       setTo(fmtTime(e.end));
@@ -331,20 +368,23 @@ function EntryRow({
     }
     // Ende vor Start → Eintrag geht über Mitternacht
     if (d < new Date(e.start)) d = addDays(d, 1);
-    onSave({ ...e, end: toIso(d) });
+    commit({ ...e, end: toIso(d) });
   };
   const commitNote = () => {
-    if (note !== e.note) onSave({ ...e, note });
+    if (skipCommit.current) {
+      skipCommit.current = false;
+      return;
+    }
+    if (note !== e.note) commit({ ...e, note });
   };
-  const onKey = (commit: () => void) => (ev: React.KeyboardEvent<HTMLInputElement>) => {
+  const onKey = (ev: React.KeyboardEvent<HTMLInputElement>) => {
     if (ev.key === 'Enter') (ev.target as HTMLInputElement).blur();
     if (ev.key === 'Escape') {
-      setFrom(fmtTime(e.start));
-      setTo(fmtTime(e.end));
-      setNote(e.note);
+      skipCommit.current = true;
+      reset();
       (ev.target as HTMLInputElement).blur();
+      skipCommit.current = false;
     }
-    void commit;
   };
 
   const projectOptions = data.projects.filter((p) => !p.archived || p.id === e.projectId);
@@ -394,7 +434,7 @@ function EntryRow({
         disabled={locked}
         onChange={(ev) => setFrom(ev.target.value)}
         onBlur={commitFrom}
-        onKeyDown={onKey(commitFrom)}
+        onKeyDown={onKey}
       />
       <input
         type="text"
@@ -404,7 +444,7 @@ function EntryRow({
         disabled={locked}
         onChange={(ev) => setTo(ev.target.value)}
         onBlur={commitTo}
-        onKeyDown={onKey(commitTo)}
+        onKeyDown={onKey}
       />
       <span className={`dur ${running ? 'live' : ''}`} title={fmtHM(secs)}>
         {fmtHM(roundSecs(secs, rounding))}
@@ -417,7 +457,7 @@ function EntryRow({
         disabled={locked}
         onChange={(ev) => setNote(ev.target.value)}
         onBlur={commitNote}
-        onKeyDown={onKey(commitNote)}
+        onKeyDown={onKey}
       />
       {expert && (
         <input

@@ -95,11 +95,36 @@ let settings: Settings = loadSettings();
 function loadSettings(): Settings {
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
-    if (raw) return { ...defaultSettings(), ...(JSON.parse(raw) as Partial<Settings>) };
+    if (raw) return sanitizeSettings({ ...defaultSettings(), ...(JSON.parse(raw) as Partial<Settings>) });
   } catch {
     // defekter Eintrag → Standard
   }
   return defaultSettings();
+}
+
+/** Wie `Settings::sanitized` in src-tauri/src/settings.rs. */
+function sanitizeSettings(s: Settings): Settings {
+  const d = defaultSettings();
+  const pick = <T,>(v: T, allowed: T[], fallback: T) => (allowed.includes(v) ? v : fallback);
+  const num = (v: unknown, max: number) => {
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.max(0, Math.min(max, n)) : 0;
+  };
+  return {
+    ...s,
+    language: pick(s.language, ['de', 'en'], d.language),
+    mode: pick(s.mode, ['simple', 'expert'], d.mode),
+    theme: pick(s.theme, ['dark', 'light'], d.theme),
+    accent: pick(s.accent, ['blue', 'emerald', 'violet', 'amber'], d.accent),
+    rounding: pick(Number(s.rounding), [0, 5, 15], 0),
+    weekStart: pick(s.weekStart, ['monday', 'sunday'], d.weekStart),
+    weeklyHours: num(s.weeklyHours, 168),
+    idleMinutes: Math.floor(num(s.idleMinutes, 240)),
+    endOfDayHour: Math.floor(num(s.endOfDayHour, 23)),
+    companyName: String(s.companyName ?? '').slice(0, 200),
+    autoUpdate: !!s.autoUpdate,
+    confirmDelete: s.confirmDelete !== false,
+  };
 }
 
 function msg(de: string, en: string): string {
@@ -112,11 +137,19 @@ let data: Data = loadData();
 
 function loadData(): Data {
   let d: Data = { ...emptyData };
+  let raw: string | null = null;
   try {
-    const raw = localStorage.getItem(DATA_KEY);
+    raw = localStorage.getItem(DATA_KEY);
     if (raw) d = { ...emptyData, ...(JSON.parse(raw) as Partial<Data>) };
   } catch {
-    // defekter Eintrag → leer
+    // Defekter Eintrag: NICHT beim nächsten Speichern überschreiben, sondern
+    // unter eigenem Schlüssel aufheben (wie data.json.corrupt-* in der App).
+    try {
+      if (raw) localStorage.setItem(`${DATA_KEY}.corrupt-${Date.now()}`, raw);
+    } catch {
+      // Speicher voll — dann bleibt nur der leere Start
+    }
+    d = { ...emptyData };
   }
   ensureMe(d);
   return d;
@@ -323,6 +356,11 @@ function csvField(s: string, delim: string): string {
   return needs ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
+/** Formel-Injektion verhindern (core/csv.rs `csv_text`): = + - @ Tab CR am Anfang → '-Präfix. */
+export function csvText(s: string): string {
+  return /^[=+\-@\t\r]/.test(s) ? `'${s}` : s;
+}
+
 function csvLine(fields: string[], delim: string): string {
   return fields.map((f) => csvField(f, delim)).join(delim) + '\r\n';
 }
@@ -384,15 +422,15 @@ function entriesCsv(d: Data, entries: Entry[], range: DateRange, roundingMin: nu
       fmtDec(fmtHours(secs), lang),
       fmtHm(rounded),
       fmtDec(fmtHours(rounded), lang),
-      person(d, e.personId)?.name ?? '',
-      c,
-      p?.name ?? '',
-      (e.taskId && task(d, e.taskId)?.name) || '',
+      csvText(person(d, e.personId)?.name ?? ''),
+      csvText(c),
+      csvText(p?.name ?? ''),
+      csvText((e.taskId && task(d, e.taskId)?.name) || ''),
       e.billable ? l.yes : l.no,
       rate > 0 ? fmtMoney(rate, lang) : '',
       fmtMoney(amountFor(d, e, rounded), lang),
-      e.tags.join(', '),
-      e.note,
+      csvText(e.tags.join(', ')),
+      csvText(e.note),
       e.locked ? l.yes : l.no,
     ];
     out += csvLine(keep.map((i) => all[i]), delim);
@@ -411,7 +449,7 @@ function summaryCsv(s: Summary, by: GroupBy, lang: string, delim: string, simple
     return r;
   };
   for (const r of s.rows) {
-    out += csvLine(row(r.label || l.unassigned, r.entries, r.seconds, r.roundedSeconds, r.billableSeconds, r.amount), delim);
+    out += csvLine(row(r.label ? csvText(r.label) : l.unassigned, r.entries, r.seconds, r.roundedSeconds, r.billableSeconds, r.amount), delim);
   }
   out += csvLine(row(l.total, s.entries, s.totalSeconds, s.totalRoundedSeconds, s.totalBillableSeconds, s.totalAmount), delim);
   return out;
@@ -483,7 +521,7 @@ const handlers: Record<string, (a: Args) => unknown> = {
   // settings
   get_settings: () => ({ ...settings }),
   set_settings: (a) => {
-    settings = { ...defaultSettings(), ...(a.settings as Settings) };
+    settings = sanitizeSettings({ ...defaultSettings(), ...(a.settings as Settings) });
     try {
       localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
     } catch (e) {

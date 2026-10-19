@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Data, Project } from '../api';
 import { Dict } from '../i18n';
+import { NumField } from './NumField';
 import { PALETTE, nextColor } from '../util';
 
 export function ProjectModal({
@@ -40,7 +41,6 @@ export function ProjectModal({
     () => (project?.clientId ? data.clients.find((c) => c.id === project.clientId)?.name : '') ?? ''
   );
   const set = <K extends keyof Project>(k: K, v: Project[K]) => setP((x) => ({ ...x, [k]: v }));
-  const num = (v: string) => Math.max(0, Number(v.replace(',', '.')) || 0);
 
   return (
     <div className="overlay" onClick={onClose}>
@@ -97,27 +97,15 @@ export function ProjectModal({
             <div className="row3">
               <label className="field">
                 <span>{t.budgetHours}</span>
-                <input
-                  type="text"
-                  value={p.budgetHours || ''}
-                  onChange={(e) => set('budgetHours', num(e.target.value))}
-                />
+                <NumField value={p.budgetHours} onChange={(n) => set('budgetHours', n)} />
               </label>
               <label className="field">
                 <span>{t.budgetAmount}</span>
-                <input
-                  type="text"
-                  value={p.budgetAmount || ''}
-                  onChange={(e) => set('budgetAmount', num(e.target.value))}
-                />
+                <NumField value={p.budgetAmount} onChange={(n) => set('budgetAmount', n)} />
               </label>
               <label className="field">
                 <span>{t.projectRate}</span>
-                <input
-                  type="text"
-                  value={p.hourlyRate || ''}
-                  onChange={(e) => set('hourlyRate', num(e.target.value))}
-                />
+                <NumField value={p.hourlyRate} onChange={(n) => set('hourlyRate', n)} />
               </label>
             </div>
             <div className="note" style={{ marginTop: -6 }}>
