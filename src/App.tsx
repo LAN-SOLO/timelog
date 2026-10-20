@@ -79,6 +79,13 @@ export default function App() {
   // Kopfzeile, Leerlauf und Feierabend gelten dem eigenen Timer — laufende
   // Einträge anderer Personen (Team-Import) zählen hier nicht.
   const running: Entry | undefined = data.entries.find((e) => !e.end && e.personId === data.mePersonId);
+  // Für das Kürzel „s“: Stand nach der letzten Antwort des Backends — nicht
+  // erst nach dem nächsten Rendern (sonst startete ein schneller zweiter
+  // Tastendruck einen weiteren Timer statt zu stoppen).
+  const runningRef = useRef(false);
+  runningRef.current = !!running;
+  const timerBusy = useRef(false);
+  const [helpOpen, setHelpOpen] = useState(false);
 
   const showToast = useCallback((msg: string, isError = false) => {
     setToast(msg);
@@ -210,6 +217,13 @@ export default function App() {
   }, [expert, view]);
 
   // --- Aktionen ------------------------------------------------------------
+  // Start/Stopp: solange ein Timer-Kommando unterwegs ist, wird ein weiterer
+  // Klick bzw. Tastendruck ignoriert (Doppelklick, Tastenprellen); die
+  // Reihenfolge aller Änderungen sichert zusätzlich die Warteschlange in api.ts.
+  const applyTimer = useCallback((d: Data) => {
+    setData(d);
+    runningRef.current = d.entries.some((e) => !e.end && e.personId === d.mePersonId);
+  }, []);
   const startTimer = useCallback(
     (projectId?: string) => {
       const pid = projectId || timerProject;
@@ -217,17 +231,32 @@ export default function App() {
         fail(t.noProjects);
         return;
       }
+      if (timerBusy.current) return;
+      timerBusy.current = true;
       api
         .startTimer({ projectId: pid, taskId: null, note: timerNote.trim(), personId: null })
         .then((d) => {
-          setData(d);
+          applyTimer(d);
           setTimerNote('');
         })
-        .catch(fail);
+        .catch(fail)
+        .finally(() => {
+          timerBusy.current = false;
+        });
     },
-    [timerProject, timerNote, fail, t]
+    [timerProject, timerNote, fail, t, applyTimer]
   );
-  const stopTimer = useCallback(() => api.stopTimer().then(setData).catch(fail), [fail]);
+  const stopTimer = useCallback(() => {
+    if (timerBusy.current) return;
+    timerBusy.current = true;
+    api
+      .stopTimer()
+      .then(applyTimer)
+      .catch(fail)
+      .finally(() => {
+        timerBusy.current = false;
+      });
+  }, [fail, applyTimer]);
 
   const saveSettings = (s: Settings) => {
     api
@@ -283,6 +312,8 @@ export default function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
+      // Hilfe offen: Sie schließt sich selbst mit Esc, Kürzel ruhen solange.
+      if (helpOpen) return;
       if (e.key === 'Escape') {
         if (confirm) settleConfirm(false);
         else if (projectEdit) setProjectEdit(null);
@@ -299,7 +330,8 @@ export default function App() {
       if (showSettings || projectEdit || confirm || idlePrompt) return;
       switch (e.key) {
         case 's':
-          running ? stopTimer() : startTimer();
+          if (runningRef.current) stopTimer();
+          else startTimer();
           break;
         case 'n':
           if (view === 'today' || view === 'week') {
@@ -340,7 +372,7 @@ export default function App() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expert, view, running, startTimer, stopTimer, showSettings, settingsBackup, projectEdit, confirm, idlePrompt, drawerOpen]);
+  }, [expert, view, startTimer, stopTimer, showSettings, settingsBackup, projectEdit, confirm, idlePrompt, drawerOpen, helpOpen]);
 
   if (!settings) return null;
 
@@ -630,7 +662,7 @@ export default function App() {
         </div>
       )}
 
-      <Help lang={lang} openSignal={helpSignal} />
+      <Help lang={lang} openSignal={helpSignal} onOpenChange={setHelpOpen} />
       {toast && <div className="toast">{toast}</div>}
     </div>
   );

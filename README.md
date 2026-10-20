@@ -2,8 +2,8 @@
 
 Zeiterfassung mit zwei Modi — für Einzelne und Teams, lokal, ohne Konto.
 
-- **Einfach (kostenlos):** Projekte mit Farbe und optionalem Kunden, Stoppuhr, manuelle Einträge mit Inline-Bearbeitung, Tages- und Wochenansicht mit Tagessummen und Soll-Bilanz, Zusammenfassung je Projekt für Heute / Woche / Monat / frei, CSV-Export, Rundung (keine / 5 / 15 min — nur Anzeige und Export).
-- **Experte („tracked“, 12 €/Jahr):** Team mit Personen (Soll-Stunden, Stundensatz), Kunden → Projekte → Tätigkeiten, Abrechenbar-Flag, Stunden-/Euro-Budgets mit Ampel, Monitoring-Dashboard (Stunden je Projekt/Person, Ist/Soll, 8-Wochen-Trend), Berichte nach Kunde/Person/Tätigkeit, PDF-Export, Wochenabschluss je Person, Team-Zusammenführung per JSON-Paket (Id-basierter Merge, offline), Leerlauf-Erkennung, Feierabend-Erinnerung, Tastaturkürzel.
+- **Einfach (kostenlos):** Projekte mit Farbe und optionalem Kunden, Stoppuhr, manuelle Einträge mit Inline-Bearbeitung, Tages- und Wochenansicht mit Tagessummen und Soll-Bilanz, Zusammenfassung je Projekt für Heute / Woche / Monat / frei, CSV-Export, Rundung (keine / 5 / 15 min — nur Anzeige und Export), Leerlauf-Erkennung.
+- **Experte („tracked“, 12 €/Jahr):** Team mit Personen (Soll-Stunden, Stundensatz), Kunden → Projekte → Tätigkeiten, Abrechenbar-Flag, Stunden-/Euro-Budgets mit Ampel, Monitoring-Dashboard (Stunden je Projekt/Person, Ist/Soll, 8-Wochen-Trend), Berichte nach Kunde/Person/Tätigkeit, PDF-Export, Wochenabschluss je Person, Team-Zusammenführung per JSON-Paket (Id-basierter Merge, offline), Feierabend-Erinnerung, Tastaturkürzel.
 - **Daten:** eine JSON-Datei im App-Datenordner, atomar geschrieben; Zeiten in UTC, Anzeige lokal. Backup = Ordner kopieren.
 - **Kein Server, kein Cloud-Sync** — Team-Zusammenführung läuft über Export/Import. Kein Ersatz für Arbeitszeiterfassung mit Prüfsiegel, aber Export für die Buchhaltung.
 
@@ -27,6 +27,13 @@ keine Berechtigung), startet timelog nicht mehr leer mit späterem Überschreibe
 meldet den Fehler und speichert bis zum Neustart nichts. Nicht-UTF-8-Inhalt wird wie ein
 Defekt gesichert (`data.json.corrupt-…`), ein UTF-8-BOM in `data.json`/`settings.json`
 gilt nicht als Defekt.
+
+Audit-Runde 3: Ändernde Kommandos laufen streng in Aufrufreihenfolge (Warteschlange in
+`src/api.ts`) — Start und Stopp kurz hintereinander können sich nicht mehr überholen; ein
+zweiter Druck auf Start/Stopp bzw. „s“, während der erste noch gespeichert wird, wird
+ignoriert. Esc schließt auch Handbuch und Tutorial, Kürzel ruhen bei offenem Handbuch.
+Web-Version: Abbrechen der Dateiauswahl gibt den Import-Knopf auch in Browsern ohne
+`cancel`-Ereignis wieder frei.
 
 ## Web-Version (Browser / Telefon)
 
@@ -54,7 +61,10 @@ pnpm build                       # tsc + Vite
 Web-UI-E2E (headless Chrome, ohne Zusatzpakete): siehe Kopf von
 `scripts/e2e/web-e2e.mjs` — `pnpm dev`, Chrome mit `--remote-debugging-port=9222`,
 dann `node scripts/e2e/web-e2e.mjs /tmp`.
-`scripts/e2e/ui-mock-ipc.mjs` fährt dieselbe Oberfläche mit gemocktem Tauri-IPC
+`scripts/e2e/journeys.mjs` spielt 13 Nutzerreisen in DE und EN durch (Erststart bis
+Wochenabschluss, inkl. abgebrochener Dialoge, voller Platte, gesperrter Datei,
+schreibgeschütztem Konfigurationsordner, Neustart mit laufendem Timer, Reihenfolge von
+Start/Stopp). `scripts/e2e/ui-mock-ipc.mjs` fährt dieselbe Oberfläche mit gemocktem Tauri-IPC
 (Dialog-Plugin, Datei-Kommandos) in DE/EN × dunkel/hell bei 900×600 und 390 px
 (`WIDTH=761|900|1240` wählbar) und prüft Überlauf, Überlappung in der Kopfzeile und
 Texte der jeweils anderen Sprache.

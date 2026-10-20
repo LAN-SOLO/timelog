@@ -379,3 +379,136 @@ Web-`mutate` stimmen mit den Angaben überein. Keine Behauptung der Runde 2 wide
       alle Einträge da, nichts überschrieben.
 - [ ] macOS: Leserechte von `data.json` entziehen → gleiche Meldung, Datei bleibt unverändert.
 - [ ] Alle Punkte aus „Runde 2 → Nur auf echter Hardware prüfbar“ und Abschnitt 7.
+
+## Runde 3
+
+Stand: 2026-10-20 · Basis: `5a357d7` · Version bleibt 1.0.0. Schwerpunkt: jede Aussage in
+Hilfe (DE/EN), README und Oberflächentexten gegen den Code prüfen, Nutzerreisen inkl.
+Fehlerfällen, Reste aus Runde 2.
+
+**Testläufe (selbst ausgeführt)**
+
+| Lauf | Ergebnis |
+|---|---|
+| `cargo test --workspace` | 34 bestanden (Kern 22, App 12), 0 fehlgeschlagen |
+| Windows-Typecheck `cargo check --target x86_64-pc-windows-msvc --workspace --tests` | fehlerfrei, keine Warnungen (keine Rust-Änderung in dieser Runde) |
+| `cargo clippy --workspace --tests` | nur die bekannten Stilhinweise (abgeleitete `Default`, Feldzuweisung nach `Default`, gleiche `if`-Zweige, 8 Argumente) |
+| `pnpm build` (tsc + Vite) | fehlerfrei |
+| Web-E2E `scripts/e2e/web-e2e.mjs` | 64/64 |
+| UI mit Tauri-Mock bei 900, 761, 1240 px | je 157/157 |
+| **Nutzerreisen `scripts/e2e/journeys.mjs` (neu)** | 76/76 (13 Reisen × DE/EN). Gegenprobe: mit dem Stand vor Runde 3 schlagen J7 (Reihenfolge) und J12 (Web-Import) fehl |
+
+**Nutzerreisen (DE und EN, Tauri-Mock bzw. Web-Backend, headless Chromium)**
+
+| # | Reise | Ergebnis |
+|---|---|---|
+| J1 | Erststart: Tutorial erscheint, Esc schließt es, Onboarding ohne Projekte, nach Neustart kein Tutorial | ok (Esc war wirkungslos → behoben) |
+| J2 | Projekt mit neuem Kunden über den Dialog | ok |
+| J3 | Timer starten, **Neustart mitten im Timer** (Seite neu geladen) → läuft mit Notiz weiter, Stopp | ok |
+| J4 | **Gesperrte Datei** beim Speichern einer Zeile (`save_entry` liefert „Speichern fehlgeschlagen … os error 32“) → Meldung, Zeile springt zurück, Bestand unverändert | ok |
+| J5 | CSV-Export: **Dialog abgebrochen** (Plugin liefert `null`) → nichts geschrieben, keine Meldung; **Platte voll** (`write_text_file` scheitert, os error 28) → Fehlermeldung statt „gespeichert“; danach CSV mit BOM | ok |
+| J6 | **Schreibgeschützter Konfigurationsordner** (`set_settings` scheitert, os error 30) → Meldung, Dialog bleibt offen, alte Sprache bleibt | ok |
+| J7 | Reihenfolge: langsamer Start + schneller Stopp ohne `await` → Backend führt Start vor Stopp aus, kein Timer läuft; Gegenprobe mit rohem `invoke` zeigt das alte Überholen; Lesekommandos warten nicht; ein Fehler hält die Schlange nicht an | ok (Fehler → behoben) |
+| J8 | Expertenmodus: „s“ zweimal schnell bei 300 ms Latenz → genau ein Timer, drittes „s“ stoppt | ok (vorher zwei Starts möglich → behoben) |
+| J9 | „?“ öffnet das Handbuch, „s“/„3“ wirken dort nicht, Esc schließt | ok (vorher: Esc wirkungslos, „s“ startete hinter dem Handbuch den Timer → behoben) |
+| J10 | Team-Paket: Öffnen-Dialog abgebrochen → Knopf wieder frei, Import, zweiter Import „0 neu“ | ok |
+| J11 | Woche abschließen → „+ Eintrag“ gesperrt, Backend lehnt Änderung ab, wieder öffnen | ok |
+| J12 | **Web-Version, Dateiauswahl abbrechen ohne `cancel`-Ereignis** (Safari < 16.4 nachgestellt) → nach Fokus-Rückkehr ist der Import-Knopf frei und erneut nutzbar | ok (Rest aus Runde 2 → behoben) |
+| J13 | Projektfilter per Klick in der Seitenleiste, zweiter Klick hebt auf; ← → wechseln die KW | ok |
+
+Nicht als Reise automatisierbar (nur Code-Review + Checkliste): echte volle Platte/Sperre/
+Schreibschutz im Dateisystem (im Mock als Fehler des Kommandos nachgestellt — die Texte
+kommen aus `io_hint`, Rust-Tests decken die Erkennung ab), App-Absturz statt Neuladen,
+native Dialoge, Updater.
+
+**Behoben**
+
+1. **Reihenfolge ändernder Kommandos** (Rest aus Runde 2): Seit Runde 2 laufen die Kommandos
+   asynchron auf dem Tokio-Pool; zwei kurz hintereinander abgeschickte Änderungen konnten
+   sich überholen. Folgen: Start + Stopp endeten mit laufendem Timer; eine Notiz-Änderung am
+   laufenden Eintrag (Commit beim Verlassen des Feldes) direkt vor „Stopp“ konnte nach dem
+   Stopp ankommen und den Eintrag mit `end: null` wieder „anlaufen“ lassen. Jetzt reiht
+   `src/api.ts` alle ändernden Kommandos (`set_settings`, `save_*`, `delete_*`,
+   `start_timer`, `stop_timer`, `import_package`, `lock_week`, `unlock_week`) in eine
+   Warteschlange — das nächste wird erst gesendet, wenn das vorige beantwortet ist. Lesende
+   Kommandos und die Update-Prüfung laufen weiter sofort. Gilt für App und Web-Version.
+   Backend unverändert (jede Änderung bleibt für sich atomar). Ein Tray-Menü gibt es nicht.
+2. **Doppelter Start per Kürzel/Doppelklick**: „s“ entschied nach dem zuletzt gerenderten
+   Zustand; ein zweiter Druck vor der Antwort startete einen zweiten Timer (der erste wurde
+   mit ~0 s beendet). Jetzt wird Start/Stopp ignoriert, solange ein Timer-Kommando
+   unterwegs ist, und „s“ liest den Stand aus der letzten Backend-Antwort.
+3. **Esc schloss Tutorial und Handbuch nicht** (Hilfe versprach „Esc — Dialog schließen“).
+   Jetzt in beiden Modi, auch aus dem Suchfeld.
+4. **Kürzel hinter offenem Handbuch**: „s“, „1–5“, „←/→“ wirkten hinter dem Handbuch (Timer
+   startete unbemerkt). Jetzt ruhen die Kürzel, solange Tutorial/Handbuch offen sind.
+5. **Web: Import-Knopf blieb nach abgebrochener Dateiauswahl gesperrt** (Browser ohne
+   `cancel`-Ereignis). Kommt nach der Fokus-Rückkehr 1,5 s lang keine Datei, gilt die
+   Auswahl als abgebrochen (`src/files.ts`); `change` hat Vorrang.
+6. `localStorage` für „Tutorial gesehen“ in try/catch (gesperrter Speicher im privaten Modus
+   warf sonst beim Start bzw. beim Schließen).
+
+**Falsche Aussagen in Hilfe/README korrigiert (DE und EN)**
+
+- „Leerlauf-Erkennung“ stand unter den Expertenfunktionen (Hilfe „Einfach & Experte“,
+  README) — sie wirkt in beiden Modi (Einstellungen → Erfassung, auch im einfachen Modus
+  sichtbar). Jetzt bei „Einfach“ aufgeführt.
+- „s — Timer starten (letztes Projekt)“: gestartet wird das in der Kopfzeile gewählte
+  Projekt (vorausgewählt ist das zuletzt benutzte) — Text präzisiert.
+- „Personen mit Einträgen werden archiviert statt gelöscht“: es wird nicht automatisch
+  archiviert, das Löschen wird abgelehnt — „lassen sich nicht löschen, nur archivieren“.
+- „Tätigkeiten … — der Timer übernimmt das Flag“: Der Timer in der Kopfzeile startet ohne
+  Tätigkeit; das Flag übernimmt ein Eintrag beim Wählen der Tätigkeit in der Zeile bzw.
+  „Erneut starten“ an einem Eintrag mit Tätigkeit — Text korrigiert.
+- „Esc — Dialog schließen“: stimmte für Tutorial/Handbuch nicht (Code behoben); Hinweis
+  ergänzt, dass die Leerlauf-Frage eine Antwort verlangt.
+- Ergänzt: Kürzel ruhen bei offenem Handbuch; zweiter Start/Stopp-Druck während des
+  Speicherns wird ignoriert, Änderungen in Eingabereihenfolge; Web-Import nach Abbrechen.
+
+Geprüft und zutreffend (Code-Review, teils E2E): Uhrzeitformate `9:30`/`0930`/`9.30`,
+„+ Eintrag“ ab Ende des letzten Eintrags sonst 09:00 (1 h), „Bis“ vor „Von“ = Folgetag,
+Duplizieren mit gleichen Zeiten, Löschnachfrage abschaltbar, zukünftige Tage in der Woche
+ausgeblendet, KW bei Sonntag, Rundung nur in Summen/Export, Projektsatz vor Personensatz
+(`rate_for`), Euro-Budget = gerundete abrechenbare Zeit × Satz, Ampel-Schwellen 80/100 %
+(Budget) und 80/100 % (Ist/Soll), Trend 8 Wochen, Dashboard-Standard Monat, CSV-Spalten
+und Formelschutz `= + - @` (zusätzlich Tab/CR), BOM, PDF A4/Courier mit Seitenzahlen,
+Paket „Eigene“ (nur eigene Person/Einträge/Sperren, alle Projekte/Kunden/Tätigkeiten),
+Import-Grenze 64 MB/.json, Feierabend-Erinnerung einmal je Tag, Leerlauf nur Eingaben im
+Fenster, Service Worker „Netz zuerst“ (neue Version beim nächsten Laden, offline startfähig).
+DE/EN-Hilfe: gleiche Abschnitte, gleiche Absatzzahl und gleiche Zahlen je Abschnitt
+(maschinell verglichen).
+
+**jsPDF-Advisories (S9) neu bewertet**
+
+`pnpm audit`: 13 Advisories zu `jspdf` (behoben erst ab 3.0.1 … 4.2.1) und 16 zu
+`dompurify` (optionale Abhängigkeit von jspdf, nur von `html()` geladen). 2.5.2 ist die
+letzte 2.x-Version — ein Patch/Minor-Update existiert nicht, jede Behebung ist ein
+Major-Sprung (laut Vorgabe nicht in dieser Runde). Betroffene Pfade gegen `src/pdf.ts`
+geprüft: ReDoS/DoS (`addImage`-Datenpfade, BMP/GIF/PNG-Decoder), Local File Inclusion
+(Node-`loadFile`), AcroForm-/`addJS`-/FreeText-/XMP-Injektion, „HTML Injection in New
+Window paths“ (`output('dataurlnewwindow' | 'pdfobjectnewwindow' …)`) — timelog benutzt
+ausschließlich `new jsPDF({unit,format})`, `setFont/FontSize/TextColor/DrawColor`, `text`,
+`line`, `addPage`, `setPage`, `getNumberOfPages`, `autoTable` und `output('arraybuffer')`;
+keine Bilder, kein HTML, keine Formulare, kein JavaScript, kein neues Fenster, läuft im
+Browser/WebView (kein Node-Dateizugriff). Nutzertext (Notizen, Namen) gelangt nur über
+`text()`/`autoTable` als Zeichenkette in den Inhaltsstrom, den jsPDF escaped. Bewertung:
+nicht ausnutzbar; Upgrade auf jsPDF 4.x + jspdf-autotable 5 bleibt für 1.1 (mit
+PDF-Sichtprüfung).
+
+**Weiter offen**
+
+- S9 (siehe oben) und S10 (`zip` über den Updater) unverändert.
+- Ist `data.json` dauerhaft gesperrt, bleibt die App bis zum Neustart ohne Bestand (gewollt).
+- Die Warteschlange ordnet Änderungen eines Fensters; mehrere Fenster gibt es nicht.
+
+**Nur auf echter Hardware prüfbar (zusätzlich)**
+
+- [ ] macOS und Windows: Start/Stopp in der Kopfzeile schnell doppelt klicken bzw. „s“
+      zweimal drücken → genau ein Eintrag, Timer-Zustand passt zur Kopfzeile.
+- [ ] Notiz am laufenden Eintrag ändern und sofort „Stopp“ klicken → Timer bleibt gestoppt,
+      Notiz gespeichert.
+- [ ] Handbuch mit „?“ öffnen, „s“ drücken → kein Timer startet; Esc schließt das Handbuch.
+- [ ] Web-Version in Safari < 16.4 (iOS 15/16.3): Einstellungen → App → Daten importieren,
+      Auswahl abbrechen → Knopf nach ~1,5 s wieder bedienbar.
+- [ ] Echte Fehlerfälle aus J4–J6 im Dateisystem (Datei in Excel offen, volle Platte bzw.
+      kleiner USB-Stick als Ziel, schreibgeschützter Konfigurationsordner) — Meldungstexte
+      wie in Runde 2 beschrieben.

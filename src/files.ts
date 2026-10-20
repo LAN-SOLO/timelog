@@ -71,23 +71,44 @@ export async function openTextFile(filter: FileFilter): Promise<string | null> {
     input.accept = filter.extensions.map((e) => `.${e}`).join(',');
     input.style.display = 'none';
     let done = false;
+    let focusTimer: number | undefined;
+    const cleanup = () => {
+      done = true;
+      window.removeEventListener('focus', onFocus);
+      window.clearTimeout(focusTimer);
+      input.remove();
+    };
     const finish = (v: string | null) => {
       if (done) return;
-      done = true;
-      input.remove();
+      cleanup();
       resolve(v);
+    };
+    // Browser ohne `cancel`-Ereignis (Safari < 16.4, ältere Chromium): Nach dem
+    // Schließen der Dateiauswahl bekommt das Fenster den Fokus zurück. Kommt
+    // danach keine Datei an, gilt die Auswahl als abgebrochen — sonst bliebe
+    // der Import-Knopf bis zum Neuladen gesperrt. Die Wartezeit lässt `change`
+    // Vorrang (einige Browser melden den Fokus vor der Datei).
+    const onFocus = () => {
+      window.clearTimeout(focusTimer);
+      focusTimer = window.setTimeout(() => {
+        if (!done && !input.files?.length) finish(null);
+      }, 1500);
     };
     input.addEventListener('change', () => {
       const f = input.files?.[0];
       if (!f) return finish(null);
       f.arrayBuffer().then((b) => finish(decodeText(new Uint8Array(b)))).catch((e) => {
-        done = true;
-        input.remove();
+        if (done) return;
+        cleanup();
         reject(e);
       });
     });
     input.addEventListener('cancel', () => finish(null));
     document.body.appendChild(input);
     input.click();
+    // Erst nach dem Öffnen lauschen: ein Fokus aus dem Klick selbst zählt nicht.
+    window.setTimeout(() => {
+      if (!done) window.addEventListener('focus', onFocus);
+    }, 0);
   });
 }

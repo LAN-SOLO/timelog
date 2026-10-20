@@ -113,8 +113,8 @@ const de: Content = {
       title: 'Einfach & Experte (tracked)',
       body: [
         'Der Modus-Schalter sitzt in der Kopfzeile; die Einstellung wird gespeichert.',
-        '• Einfach (kostenlos): Projekte mit Farbe und optionalem Kunden, Stoppuhr, manuelle Einträge, Tages- und Wochenansicht, Soll-Stunden mit Wochenbilanz, Zusammenfassung je Projekt, CSV-Export, Rundung.',
-        '• Experte (Tarif „tracked“, 12 € im Jahr): zusätzlich Team mit Personen, Kunden → Projekte → Tätigkeiten, Abrechenbar-Flag, Budgets und Stundensätze, Dashboard, Berichte nach Kunde/Person/Tätigkeit, PDF-Export, Wochenabschluss, Team-Zusammenführung, Leerlauf-Erkennung, Feierabend-Erinnerung, Tastaturkürzel.',
+        '• Einfach (kostenlos): Projekte mit Farbe und optionalem Kunden, Stoppuhr, manuelle Einträge, Tages- und Wochenansicht, Soll-Stunden mit Wochenbilanz, Zusammenfassung je Projekt, CSV-Export, Rundung, Leerlauf-Erkennung.',
+        '• Experte (Tarif „tracked“, 12 € im Jahr): zusätzlich Team mit Personen, Kunden → Projekte → Tätigkeiten, Abrechenbar-Flag, Budgets und Stundensätze, Dashboard, Berichte nach Kunde/Person/Tätigkeit, PDF-Export, Wochenabschluss, Team-Zusammenführung, Feierabend-Erinnerung, Tastaturkürzel.',
         '• Im Vorabzugang ist der Expertenmodus frei umschaltbar — es gibt keine Lizenzprüfung.',
       ],
     },
@@ -134,7 +134,7 @@ const de: Content = {
       title: 'Stoppuhr',
       body: [
         'Projekt wählen, optional Notiz, „Start“. Der Timer läuft als Eintrag ohne Ende; die Kopfzeile zählt hh:mm:ss.',
-        '• Ein neuer Start beendet einen laufenden Timer automatisch — es gibt immer nur einen. Laufende Einträge von Kolleginnen und Kollegen aus einem Team-Paket bleiben davon unberührt und erscheinen nicht in der Kopfzeile.',
+        '• Ein neuer Start beendet einen laufenden Timer automatisch — es gibt immer nur einen. Ein zweiter Klick oder Tastendruck, während Start bzw. Stopp noch gespeichert wird, wird ignoriert; alle Änderungen werden in der Reihenfolge Ihrer Eingaben gespeichert. Laufende Einträge von Kolleginnen und Kollegen aus einem Team-Paket bleiben davon unberührt und erscheinen nicht in der Kopfzeile.',
         '• Die Startzeit lässt sich nachträglich in der Zeile korrigieren, auch während der Timer läuft.',
         '• „Erneut starten“ an einem eigenen Eintrag übernimmt Projekt, Tätigkeit und Notiz (bei Einträgen anderer Personen gibt es den Knopf nicht).',
         '• Leerlauf-Erkennung (Einstellungen → Erfassung): Läuft der Timer x Minuten ohne Eingabe in timelog, fragt die App nach — weiterlaufen, jetzt stoppen oder bei der letzten Aktivität stoppen.',
@@ -199,8 +199,8 @@ const de: Content = {
       title: 'Team, Wochenabschluss, Zusammenführung',
       body: [
         '„Team“ (Experte) verwaltet Personen, Kunden und Tätigkeiten.',
-        '• Personen: Name, E-Mail, Soll-Stunden/Woche, Stundensatz, Farbe — Dezimalwerte mit Komma oder Punkt (37,5 / 85.50). Die Person „ich“ ist die dieser Installation; sie lässt sich nicht löschen. Personen mit Einträgen werden archiviert statt gelöscht.',
-        '• Tätigkeiten gehören zu einem Projekt und können „standardmäßig abrechenbar“ sein — der Timer übernimmt das Flag.',
+        '• Personen: Name, E-Mail, Soll-Stunden/Woche, Stundensatz, Farbe — Dezimalwerte mit Komma oder Punkt (37,5 / 85.50). Die Person „ich“ ist die dieser Installation; sie lässt sich nicht löschen. Personen mit Einträgen lassen sich nicht löschen, nur archivieren.',
+        '• Tätigkeiten gehören zu einem Projekt und können „standardmäßig abrechenbar“ sein — ein Eintrag übernimmt das Flag, sobald die Tätigkeit in der Zeile gewählt wird, ebenso „Erneut starten“ an einem Eintrag mit Tätigkeit. Der Timer in der Kopfzeile startet ohne Tätigkeit (abrechenbar nach Projekt).',
         '• Wochenabschluss: Person und Woche wählen, abschließen. Gesperrte Wochen listet das Panel; jede lässt sich dort wieder öffnen.',
         '• Paket exportieren: „Eigene Einträge“ enthält nur Ihre Person, Einträge und Sperren plus alle Projekte/Kunden/Tätigkeiten; „Alles“ den kompletten Bestand.',
         '• Paket importieren: Id-basierter Merge — neue Datensätze kommen dazu, geänderte werden übernommen, wenn sie jünger sind, identische bleiben unverändert. Das Ergebnis erscheint als Meldung.',
@@ -211,12 +211,12 @@ const de: Content = {
       id: 'shortcuts',
       title: 'Tastaturkürzel (Experte)',
       body: [
-        '• s — Timer starten (letztes Projekt) / stoppen',
+        '• s — Timer starten (mit dem Projekt aus der Kopfzeile, vorausgewählt ist das zuletzt benutzte) / stoppen',
         '• n — neuer Eintrag in der aktuellen Ansicht',
         '• ← → — Tag, Woche bzw. Zeitraum wechseln',
         '• 1 … 5 — Ansicht: Heute, Woche, Berichte, Dashboard, Team',
-        '• ? — Handbuch · Esc — Dialog schließen (Esc wirkt in beiden Modi)',
-        'Kürzel sind inaktiv, solange ein Eingabefeld den Fokus hat.',
+        '• ? — Handbuch · Esc — Dialog, Handbuch oder Tutorial schließen (Esc wirkt in beiden Modi; die Leerlauf-Frage will eine Antwort)',
+        'Kürzel sind inaktiv, solange ein Eingabefeld den Fokus hat oder das Handbuch offen ist.',
       ],
     },
     {
@@ -259,6 +259,7 @@ const de: Content = {
         '• Die Daten der Web-Version liegen im Speicher dieses Browsers auf diesem Gerät. Es gibt keinen Abgleich mit der Desktop-App — Austausch läuft über „Daten exportieren / importieren“ (Einstellungen → App) bzw. das Team-Paket.',
         '• Wichtig: Wer die Website-Daten des Browsers löscht, löscht auch die Einträge. Regelmäßig exportieren.',
         '• CSV- und PDF-Exporte kommen als Download; auf iOS landen sie über das Teilen-Menü in „Dateien“.',
+        '• Import: Brechen Sie die Dateiauswahl ab, ist der Knopf gleich wieder bedienbar — in älteren Browsern ohne Abbrechen-Meldung (z. B. Safari vor 16.4) nach etwa 1,5 Sekunden.',
       ],
     },
     {
@@ -359,8 +360,8 @@ const en: Content = {
       title: 'Simple & Expert (tracked)',
       body: [
         'The mode switch sits in the header; the setting is saved.',
-        '• Simple (free): projects with colour and optional client, stopwatch, manual entries, day and week view, target hours with week balance, summary per project, CSV export, rounding.',
-        '• Expert (“tracked” plan, €12 per year): additionally team with people, clients → projects → tasks, billable flag, budgets and hourly rates, dashboard, reports by client/person/task, PDF export, week close, team merge, idle detection, end-of-day reminder, keyboard shortcuts.',
+        '• Simple (free): projects with colour and optional client, stopwatch, manual entries, day and week view, target hours with week balance, summary per project, CSV export, rounding, idle detection.',
+        '• Expert (“tracked” plan, €12 per year): additionally team with people, clients → projects → tasks, billable flag, budgets and hourly rates, dashboard, reports by client/person/task, PDF export, week close, team merge, end-of-day reminder, keyboard shortcuts.',
         '• During early access, expert mode can be switched freely — there is no licence check.',
       ],
     },
@@ -380,7 +381,7 @@ const en: Content = {
       title: 'Stopwatch',
       body: [
         'Pick a project, optionally a note, “Start”. The timer is an entry without an end; the header counts hh:mm:ss.',
-        '• A new start automatically stops a running timer — there is only ever one. Running entries of teammates from a team package are left alone and do not appear in the header.',
+        '• A new start automatically stops a running timer — there is only ever one. A second click or key press while start or stop is still being saved is ignored; all changes are saved in the order you made them. Running entries of teammates from a team package are left alone and do not appear in the header.',
         '• The start time can be corrected in the row later, even while the timer runs.',
         '• “Start again” on one of your own entries takes over project, task and note (entries of other people have no such button).',
         '• Idle detection (Settings → Tracking): if the timer runs x minutes without input in timelog, the app asks — keep running, stop now, or stop at the last activity.',
@@ -445,8 +446,8 @@ const en: Content = {
       title: 'Team, week close, merge',
       body: [
         '“Team” (expert) manages people, clients and tasks.',
-        '• People: name, email, target hours/week, hourly rate, colour — decimals with comma or point (37,5 / 85.50). The person “me” is this installation’s; it cannot be deleted. People with entries are archived rather than deleted.',
-        '• Tasks belong to a project and can be “billable by default” — the timer picks up the flag.',
+        '• People: name, email, target hours/week, hourly rate, colour — decimals with comma or point (37,5 / 85.50). The person “me” is this installation’s; it cannot be deleted. People with entries cannot be deleted, only archived.',
+        '• Tasks belong to a project and can be “billable by default” — an entry takes over the flag as soon as the task is picked in its row, as does “Start again” on an entry with a task. The header timer starts without a task (billable per project).',
         '• Week close: choose person and week, close. The panel lists closed weeks; each can be reopened there.',
         '• Export package: “My entries” contains only your person, entries and locks plus all projects/clients/tasks; “Everything” the whole data set.',
         '• Import package: id-based merge — new records are added, changed ones are taken over if newer, identical ones stay unchanged. The result appears as a message.',
@@ -457,12 +458,12 @@ const en: Content = {
       id: 'shortcuts',
       title: 'Keyboard shortcuts (expert)',
       body: [
-        '• s — start timer (last project) / stop',
+        '• s — start timer (with the project picked in the header, pre-selected: the last one used) / stop',
         '• n — new entry in the current view',
         '• ← → — change day, week or period',
         '• 1 … 5 — view: today, week, reports, dashboard, team',
-        '• ? — manual · Esc — close dialog (Esc works in both modes)',
-        'Shortcuts are inactive while an input field has focus.',
+        '• ? — manual · Esc — close a dialog, the manual or the tutorial (Esc works in both modes; the idle question needs an answer)',
+        'Shortcuts are inactive while an input field has focus or the manual is open.',
       ],
     },
     {
@@ -505,6 +506,7 @@ const en: Content = {
         '• The web version keeps its data in this browser’s storage on this device. There is no sync with the desktop app — exchange data via “Export / Import data” (Settings → App) or the team package.',
         '• Important: clearing the browser’s site data deletes the entries as well. Export regularly.',
         '• CSV and PDF exports arrive as downloads; on iOS they land in “Files” via the share sheet.',
+        '• Import: if you cancel the file picker, the button is usable again right away — in older browsers that do not report the cancel (e.g. Safari before 16.4) after about 1.5 seconds.',
       ],
     },
     {
@@ -526,7 +528,16 @@ const en: Content = {
   ],
 };
 
-export function Help({ lang, openSignal = 0 }: { lang: Lang; openSignal?: number }) {
+export function Help({
+  lang,
+  openSignal = 0,
+  onOpenChange,
+}: {
+  lang: Lang;
+  openSignal?: number;
+  /** Meldet, ob Tutorial/Handbuch offen ist (Tastaturkürzel ruhen dann). */
+  onOpenChange?: (open: boolean) => void;
+}) {
   // Sprache der Hilfe: folgt der App-Sprache, lässt sich aber im Kopf der
   // Hilfe jederzeit zwischen DE und EN umschalten
   const [helpLang, setHelpLang] = useState<'de' | 'en'>(lang === 'de' ? 'de' : 'en');
@@ -535,7 +546,13 @@ export function Help({ lang, openSignal = 0 }: { lang: Lang; openSignal?: number
   }, [lang]);
   const c = helpLang === 'de' ? de : en;
   const [mode, setMode] = useState<'closed' | 'tutorial' | 'manual'>(() =>
-    localStorage.getItem(SEEN_KEY) ? 'closed' : 'tutorial'
+    {
+      try {
+        return localStorage.getItem(SEEN_KEY) ? 'closed' : 'tutorial';
+      } catch {
+        return 'tutorial';
+      }
+    }
   );
   const [step, setStep] = useState(0);
   const [sel, setSel] = useState(c.sections[0].id);
@@ -546,10 +563,27 @@ export function Help({ lang, openSignal = 0 }: { lang: Lang; openSignal?: number
   }, [openSignal]);
 
   const close = () => {
-    localStorage.setItem(SEEN_KEY, '1');
+    try {
+      localStorage.setItem(SEEN_KEY, '1');
+    } catch {
+      // Speicher voll/gesperrt: Tutorial erscheint dann beim nächsten Start wieder.
+    }
     setMode('closed');
     setStep(0);
   };
+
+  const open = mode !== 'closed';
+  useEffect(() => {
+    onOpenChange?.(open);
+    if (!open) return;
+    // Esc schließt Tutorial und Handbuch (in beiden Modi, auch aus dem Suchfeld).
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') close();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const query = q.trim().toLowerCase();
   const filtered = query

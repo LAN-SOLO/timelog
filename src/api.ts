@@ -11,10 +11,44 @@ type WebCall = (cmd: string, args?: Record<string, unknown>) => Promise<unknown>
 let webCall: WebCall | null = null;
 
 /** Kommando ausführen — in der App über Tauri, im Browser über das lokale Web-Backend. */
-async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+async function send<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   if (isTauri) return invoke<T>(cmd, args);
   if (!webCall) webCall = (await import('./webapi')).call;
   return webCall(cmd, args) as Promise<T>;
+}
+
+/**
+ * Ändernde Kommandos laufen streng nacheinander, in Aufrufreihenfolge.
+ * Tauri führt `async`-Kommandos parallel auf dem Tokio-Pool aus — ohne diese
+ * Warteschlange hätten z. B. Start und Stopp kurz hintereinander (Kürzel,
+ * Doppelklick) keine garantierte Reihenfolge. Ein Fehler hält die Schlange
+ * nicht an; lesende Kommandos (Berichte, Update-Prüfung) warten nicht.
+ */
+export const MUTATING = new Set([
+  'set_settings',
+  'save_person',
+  'delete_person',
+  'save_client',
+  'delete_client',
+  'save_project',
+  'delete_project',
+  'save_task',
+  'delete_task',
+  'save_entry',
+  'delete_entry',
+  'start_timer',
+  'stop_timer',
+  'import_package',
+  'lock_week',
+  'unlock_week',
+]);
+let queue: Promise<unknown> = Promise.resolve();
+
+function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  if (!MUTATING.has(cmd)) return send<T>(cmd, args);
+  const run = queue.then(() => send<T>(cmd, args));
+  queue = run.catch(() => undefined);
+  return run;
 }
 
 export type Mode = 'simple' | 'expert';
