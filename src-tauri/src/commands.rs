@@ -79,12 +79,31 @@ fn lock<T>(m: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 /// Platte, gesperrte Datei unter Windows) hinterlässt keinen halben Zustand.
 fn mutate(st: &Shared, f: impl FnOnce(&mut Data) -> Result<(), String>) -> Result<Data, String> {
     let en = is_en(st);
+    load_guard(st, en)?;
     let mut data = lock(&st.data);
     let mut next = data.clone();
     f(&mut next)?;
     store::save(&st.data_dir, &next).map_err(|e| format!("{}: {}", tr(en, "Speichern fehlgeschlagen", "Saving failed"), io_hint(&e, en)))?;
     *data = next;
     Ok(data.clone())
+}
+
+/// War `data.json` beim Start nicht lesbar, wird nichts gespeichert (und
+/// `get_data` meldet es sofort) — der leere Stand im Speicher darf den
+/// echten Bestand nicht überschreiben.
+fn load_guard(st: &Shared, en: bool) -> Result<(), String> {
+    match &st.load_error {
+        None => Ok(()),
+        Some(e) => Err(format!(
+            "{}: {}",
+            tr(
+                en,
+                "data.json konnte beim Start nicht gelesen werden — es wird nichts gespeichert, damit Ihr Bestand nicht überschrieben wird. Bitte das sperrende Programm schließen und timelog neu starten",
+                "data.json could not be read at startup — nothing is saved so your data is not overwritten. Close the program locking it and restart timelog",
+            ),
+            io_hint(e, en)
+        )),
+    }
 }
 
 fn week_start_setting(st: &Shared) -> WeekStart {
@@ -134,6 +153,7 @@ pub async fn set_settings(app: AppHandle, st: State<'_, Shared>, settings: Setti
 
 #[tauri::command]
 pub async fn get_data(st: State<'_, Shared>) -> Result<Data, String> {
+    load_guard(&st, is_en(&st))?;
     Ok(lock(&st.data).clone())
 }
 
@@ -786,7 +806,7 @@ mod tests {
         assert_eq!(decode_text(le).unwrap(), "{\"ä\":1}");
         assert!(decode_text(vec![0xC3, 0x28]).is_none());
         // UTF-16 + Paket-Parser: Windows-Editor „Unicode“
-        let json = format!("{{\"format\":\"timelog-package\",\"version\":1,\"exportedAt\":\"\",\"data\":{{}}}}");
+        let json = r#"{"format":"timelog-package","version":1,"exportedAt":"","data":{}}"#;
         let mut le = vec![0xFF, 0xFE];
         for u in json.encode_utf16() {
             le.extend_from_slice(&u.to_le_bytes());

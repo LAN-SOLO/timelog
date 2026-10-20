@@ -22,6 +22,12 @@ Datei-Fehler („in einem anderen Programm geöffnet“), reservierte Windows-Da
 abgelehnt, Import von UTF-16-Dateien (Windows-Editor), Merge nach echtem Zeitpunkt,
 KW-Anzeige bei Wochenbeginn Sonntag, Kopfzeile bei 900 px ohne Überlappung.
 
+Verifikation Runde 2: Ist `data.json` beim Start vorhanden, aber nicht lesbar (gesperrt,
+keine Berechtigung), startet timelog nicht mehr leer mit späterem Überschreiben, sondern
+meldet den Fehler und speichert bis zum Neustart nichts. Nicht-UTF-8-Inhalt wird wie ein
+Defekt gesichert (`data.json.corrupt-…`), ein UTF-8-BOM in `data.json`/`settings.json`
+gilt nicht als Defekt.
+
 ## Web-Version (Browser / Telefon)
 
 Die Oberfläche läuft auch ohne Tauri als Webapp: `pnpm build` erzeugt in `dist/` eine

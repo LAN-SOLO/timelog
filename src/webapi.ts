@@ -496,7 +496,9 @@ function isNewer(a: string, b: string): boolean {
 function mergeVec<T extends { id: string; updatedAt: string }>(target: T[], incoming: T[], rep: MergeReport): number {
   let added = 0;
   const index = new Map<string, number>();
-  target.forEach((t, i) => index.set(t.id, i));
+  target.forEach((t, i) => {
+    if (!index.has(t.id)) index.set(t.id, i); // erster Treffer wie zuvor findIndex
+  });
   for (const item of incoming) {
     if (!item.id) continue;
     const i = index.get(item.id) ?? -1;

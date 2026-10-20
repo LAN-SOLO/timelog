@@ -316,3 +316,66 @@ laufen die `isTauri`-Pfade von `src/files.ts` (Speichern-/Öffnen-Dialog, `write
       überlappt in der Kopfzeile (macOS und Windows, 100 % und 150 % DPI).
 - [ ] Leerlauf-Dialog offen lassen, Timer über die Kopfzeile stoppen und neu starten → der alte
       Dialog verschwindet.
+
+## Runde 2 – Verifikation
+
+Stand: 2026-10-20 · geprüft: `adc6083..b3ea82b` (Runde 2) · unabhängige, skeptische Zweitprüfung.
+Version bleibt 1.0.0.
+
+**Nachgeprüft (selbst ausgeführt)**
+
+| Lauf | Ergebnis |
+|---|---|
+| `cargo test --workspace` | vor den Korrekturen 31/31, danach 34/34 (Kern 22, App 12) |
+| Windows-Typecheck `cargo check --target x86_64-pc-windows-msvc --workspace --tests` | fehlerfrei, keine Warnungen (vor und nach den Korrekturen) |
+| `cargo clippy --workspace --tests` | nur Stilhinweise aus Runde 1 (ein neuer `useless format!` im Test behoben) |
+| `pnpm build` | fehlerfrei |
+| Web-E2E | 64/64 |
+| UI mit Tauri-Mock bei 900, 761 und 1240 px | je 157/157 |
+| eigene Browser-Prüfung | `weekNumber`: So 18.10.2026 → 43, So 27.12.2026 → 53, So 03.01.2027 → 1, So 29.12.2024 → 1; `decodeText` UTF-16 LE/BE, UTF-8 mit/ohne BOM; Start mit nicht lesbarer `data.json` (gemockt) zeigt die Meldung, Onboarding erscheint nicht |
+| `cargo audit` | unverändert (3 × `zip` über den Updater, S10; Unmaintained/Unsound S11) |
+
+Diff-Review: Kein Deadlock durch die asynchronen Kommandos — Sperren werden nur in der
+Reihenfolge `data` → `settings` genommen, `set_settings` hält ausschließlich `settings`.
+Keine Sperre über ein `await`. `as_chunks` (Rust 1.88) ist mit der CI (`stable`) verfügbar.
+`windows_name_problem`, `io_hint` (Windows-Codes 32/33/39/112 nur unter `cfg!(windows)`),
+`is_newer`, Leerlauf-Frage, `weekNumber` an allen fünf Stellen und transaktionales
+Web-`mutate` stimmen mit den Angaben überein. Keine Behauptung der Runde 2 widerlegt.
+
+**Zusätzlich gefunden und behoben**
+
+- **Datenverlust bei nicht lesbarer `data.json`** (L5/L11, aus der Zeit vor Runde 2): `store::load`
+  behandelte JEDEN Lesefehler wie „Datei fehlt“ → leerer Bestand, und das nächste Speichern
+  überschrieb die echte Datei. Betroffen: unter Windows von Virenscanner/OneDrive beim Start
+  gesperrte Datei, fehlende Rechte, und Inhalt, der kein UTF-8 ist (`read_to_string` scheitert →
+  ohne Sicherung überschrieben). Jetzt: Lesen mit Wiederholung (Windows ~1 s); „fehlt“ → leer wie
+  bisher; kein UTF-8/kein JSON → Sicherung `data.json.corrupt-…` wie bei S3; sonst bleibt der
+  Fehler in `AppState::load_error`, `get_data` meldet ihn sofort (übersetzt, mit `io_hint`), und
+  jedes Speichern wird bis zum Neustart abgelehnt. Tests: `unreadable_file_is_an_error_not_empty`,
+  `invalid_utf8_is_backed_up_not_lost`.
+- **UTF-8-BOM in `data.json`/`settings.json`** (L4): galt als Defekt → leerer Start (Daten gesichert)
+  bzw. Standard-Einstellungen. BOM wird jetzt übersprungen. Test `utf8_bom_is_not_corrupt`.
+- **Merge mit doppelten Ids im Bestand**: Der neue Id-Index nahm den letzten Treffer, die frühere
+  lineare Suche den ersten — wieder erster Treffer (Kern + Web).
+- `io_hint` EN „No permission to write here“ erschien auch bei Lesefehlern → „No permission for
+  this location“ (wie DE „Keine Berechtigung für diesen Ort“).
+- Hilfe DE/EN (Daten & Speicherort) und README ergänzt.
+
+**Restrisiken (bewusst nicht geändert)**
+
+- Asynchrone Kommandos laufen parallel auf dem Tokio-Pool; zwei praktisch gleichzeitig
+  abgeschickte Änderungen (z. B. Start und Stopp innerhalb weniger Millisekunden) haben keine
+  garantierte Reihenfolge mehr. Jede Änderung ist für sich atomar (eine Sperre über
+  Prüfen + Speichern), es entsteht kein halber Zustand. Bei Bedienung per Hand nicht erreichbar.
+- Web-Version: Bricht der Nutzer die Dateiauswahl in einem Browser ohne `cancel`-Ereignis ab
+  (Safari < 16.4), bleibt der Import-Knopf bis zum Neuladen gesperrt. Desktop-App nicht betroffen.
+- Ist `data.json` dauerhaft gesperrt, bleibt die App bis zum Neustart ohne Bestand (gewollt:
+  lieber nichts speichern als überschreiben).
+
+**Nur auf echter Hardware prüfbar (zusätzlich)**
+
+- [ ] Windows: `data.json` beim Start sperren (z. B. in einem Programm exklusiv geöffnet halten) →
+      Meldung „data.json konnte beim Start nicht gelesen werden …“, nach Schließen + Neustart sind
+      alle Einträge da, nichts überschrieben.
+- [ ] macOS: Leserechte von `data.json` entziehen → gleiche Meldung, Datei bleibt unverändert.
+- [ ] Alle Punkte aus „Runde 2 → Nur auf echter Hardware prüfbar“ und Abschnitt 7.

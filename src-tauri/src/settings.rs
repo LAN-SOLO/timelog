@@ -117,7 +117,7 @@ fn settings_path(app: &tauri::AppHandle) -> PathBuf {
 pub fn load(app: &tauri::AppHandle) -> Settings {
     let path = settings_path(app);
     match std::fs::read_to_string(&path) {
-        Ok(s) => match serde_json::from_str::<Settings>(&s) {
+        Ok(s) => match serde_json::from_str::<Settings>(s.trim_start_matches('\u{feff}')) {
             Ok(v) => v.sanitized(),
             Err(e) => {
                 eprintln!("timelog: settings.json unlesbar ({e}) — Standardwerte, Original gesichert");

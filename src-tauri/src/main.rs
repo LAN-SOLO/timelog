@@ -19,11 +19,19 @@ fn main() {
             let handle = app.handle().clone();
             let data_dir = settings::data_dir(&handle);
             let s = settings::load(&handle);
-            let data = store::load(&data_dir, &s.language);
+            let (data, load_error) = match store::load(&data_dir, &s.language) {
+                Ok(d) => (d, None),
+                Err(e) => {
+                    let mut d = timelog_core::Data::default();
+                    store::ensure_me(&mut d, &s.language);
+                    (d, Some(e))
+                }
+            };
             app.manage(Arc::new(AppState {
                 settings: Mutex::new(s),
                 data: Mutex::new(data),
                 data_dir,
+                load_error,
             }));
             Ok(())
         })

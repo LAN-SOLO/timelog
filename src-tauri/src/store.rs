@@ -5,6 +5,8 @@
 //! Eine unlesbare `data.json` wird NICHT stillschweigend überschrieben: Sie
 //! wird vorher als `data.json.corrupt-<Zeitstempel>` gesichert, dann startet
 //! die App mit leerem Bestand. So geht nach einem Fehler nichts verloren.
+//! Lässt sich die Datei gar nicht lesen (gesperrt, keine Berechtigung), wird
+//! das Speichern bis zum Neustart gesperrt (`AppState::load_error`).
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -79,7 +81,7 @@ pub fn io_hint(e: &std::io::Error, en: bool) -> String {
         _ => None,
     };
     let hint = hint.or(match e.kind() {
-        std::io::ErrorKind::PermissionDenied => Some(if en { "No permission to write here" } else { "Keine Berechtigung für diesen Ort" }),
+        std::io::ErrorKind::PermissionDenied => Some(if en { "No permission for this location" } else { "Keine Berechtigung für diesen Ort" }),
         std::io::ErrorKind::NotFound => Some(if en { "File or folder not found" } else { "Datei oder Ordner nicht gefunden" }),
         std::io::ErrorKind::ReadOnlyFilesystem => Some(if en { "The drive is read-only" } else { "Das Laufwerk ist schreibgeschützt" }),
         std::io::ErrorKind::StorageFull => Some(if en { "Not enough disk space" } else { "Nicht genug Speicherplatz" }),
@@ -91,21 +93,52 @@ pub fn io_hint(e: &std::io::Error, en: bool) -> String {
     }
 }
 
-pub fn load(dir: &Path, language: &str) -> Data {
-    let path = data_file(dir);
-    let mut data: Data = match std::fs::read_to_string(&path) {
-        Ok(s) => match serde_json::from_str(&s) {
-            Ok(d) => d,
-            Err(e) => {
-                let saved = backup_corrupt(&path);
-                eprintln!("timelog: data.json unlesbar ({e}) — gesichert als {saved:?}, starte leer");
-                Data::default()
+/// Datei lesen; unter Windows kurz wiederholen, wenn Virenscanner oder
+/// Sync-Client sie gerade geöffnet halten (wie beim Umbenennen).
+fn read_with_retry(path: &Path) -> std::io::Result<Vec<u8>> {
+    let mut attempt = 0;
+    loop {
+        match std::fs::read(path) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound && attempt + 1 < READ_ATTEMPTS => {
+                attempt += 1;
+                std::thread::sleep(std::time::Duration::from_millis(100 * attempt as u64));
             }
-        },
-        Err(_) => Data::default(),
+            r => return r,
+        }
+    }
+}
+
+/// Versuche für das Lesen beim Start (Windows insgesamt ~1 s Wartezeit).
+const READ_ATTEMPTS: u32 = if cfg!(windows) { 5 } else { 2 };
+
+/// Bestand laden. Fehlt `data.json`, startet die App leer; ist sie defekt
+/// (kein JSON, kein UTF-8), wird sie gesichert und die App startet leer.
+/// Lässt sie sich gar nicht LESEN (gesperrt, keine Berechtigung), kommt der
+/// Fehler zurück — der Aufrufer darf dann nichts speichern, sonst würde der
+/// leere Stand den echten Bestand überschreiben.
+pub fn load(dir: &Path, language: &str) -> Result<Data, std::io::Error> {
+    let path = data_file(dir);
+    let mut data: Data = match read_with_retry(&path) {
+        Ok(bytes) => {
+            // UTF-8-BOM (Datei im Windows-Editor gespeichert) ist kein Defekt.
+            let body = bytes.strip_prefix(b"\xEF\xBB\xBF".as_slice()).unwrap_or(&bytes);
+            match serde_json::from_slice(body) {
+                Ok(d) => d,
+                Err(e) => {
+                    let saved = backup_corrupt(&path);
+                    eprintln!("timelog: data.json unlesbar ({e}) — gesichert als {saved:?}, starte leer");
+                    Data::default()
+                }
+            }
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Data::default(),
+        Err(e) => {
+            eprintln!("timelog: data.json nicht lesbar ({e}) — Speichern gesperrt");
+            return Err(e);
+        }
     };
     ensure_me(&mut data, language);
-    data
+    Ok(data)
 }
 
 /// Stellt sicher, dass es die eigene Person gibt (einfacher Modus: genau eine).
@@ -151,7 +184,7 @@ mod tests {
         assert_eq!(d.persons[0].name, "Ich");
         save(&dir, &d).unwrap();
         save(&dir, &d).unwrap(); // Ersetzen einer vorhandenen Datei (Windows!)
-        let back = load(&dir, "en");
+        let back = load(&dir, "en").unwrap();
         assert_eq!(back, d);
         assert!(!dir.join("data.json.tmp").exists());
         std::fs::remove_dir_all(&dir).unwrap();
@@ -161,7 +194,7 @@ mod tests {
     fn corrupt_file_is_backed_up_not_lost() {
         let dir = tmpdir("corrupt");
         std::fs::write(data_file(&dir), b"{ kaputt").unwrap();
-        let d = load(&dir, "en");
+        let d = load(&dir, "en").unwrap();
         assert_eq!(d.persons.len(), 1);
         assert_eq!(d.persons[0].name, "Me");
         let backups: Vec<_> = std::fs::read_dir(&dir)
@@ -177,9 +210,42 @@ mod tests {
     #[test]
     fn missing_file_starts_empty_with_me() {
         let dir = tmpdir("missing");
-        let d = load(&dir, "de");
+        let d = load(&dir, "de").unwrap();
         assert_eq!(d.persons.len(), 1);
         assert_eq!(d.me_person_id, d.persons[0].id);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn utf8_bom_is_not_corrupt() {
+        let dir = tmpdir("bom");
+        let mut d = Data::default();
+        ensure_me(&mut d, "de");
+        let mut bytes = b"\xEF\xBB\xBF".to_vec();
+        bytes.extend_from_slice(serde_json::to_string(&d).unwrap().as_bytes());
+        std::fs::write(data_file(&dir), bytes).unwrap();
+        assert_eq!(load(&dir, "de").unwrap(), d);
+        assert!(std::fs::read_dir(&dir).unwrap().all(|e| !e.unwrap().file_name().to_string_lossy().contains("corrupt")));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn invalid_utf8_is_backed_up_not_lost() {
+        let dir = tmpdir("utf8");
+        std::fs::write(data_file(&dir), [0xC3, 0x28, b'{']).unwrap();
+        let d = load(&dir, "de").unwrap();
+        assert_eq!(d.persons.len(), 1);
+        assert!(std::fs::read_dir(&dir).unwrap().any(|e| e.unwrap().file_name().to_string_lossy().starts_with("data.json.corrupt-")));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// Nicht lesbar (hier: `data.json` ist ein Ordner) ≠ fehlt: Fehler statt
+    /// leerem Bestand, damit nichts überschrieben wird.
+    #[test]
+    fn unreadable_file_is_an_error_not_empty() {
+        let dir = tmpdir("unreadable");
+        std::fs::create_dir_all(data_file(&dir)).unwrap();
+        assert!(load(&dir, "de").is_err());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -87,8 +87,12 @@ where
     FId: Fn(&T) -> &str,
     FUpd: Fn(&T) -> &str,
 {
-    let mut index: std::collections::HashMap<String, usize> =
-        target.iter().enumerate().map(|(i, t)| (id(t).to_string(), i)).collect();
+    // Erster Treffer gewinnt (wie zuvor die lineare Suche), falls der
+    // Bestand doch doppelte Ids enthält.
+    let mut index: std::collections::HashMap<String, usize> = std::collections::HashMap::with_capacity(target.len());
+    for (i, t) in target.iter().enumerate() {
+        index.entry(id(t).to_string()).or_insert(i);
+    }
     let mut added = 0;
     for item in incoming {
         if id(item).is_empty() {
